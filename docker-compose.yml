@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  langchain_app:
+    build: .
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - .:/app  # Mount your local project directory to /app in the container
+    ports:
+      - "8000:8000"
+    networks:
+      - teladoc_docker_env
+    command: [ "tail", "-f", "/dev/null"]
+
+networks:
+  teladoc_docker_env:
+    external: true  # Use an already existing network
