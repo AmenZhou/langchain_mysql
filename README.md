@@ -1,6 +1,4 @@
-Based on the information available, here's a suggested `README.md` file for the `langchain_mysql` repository:
 
-```markdown
 # LangChain MySQL Integration
 
 This repository demonstrates how to integrate [LangChain](https://github.com/hwchase17/langchain) with a MySQL database. It provides a setup to run a MySQL instance using Docker and interact with it using LangChain.
