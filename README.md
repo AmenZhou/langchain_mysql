@@ -70,12 +70,6 @@ This repository demonstrates how to integrate [LangChain](https://github.com/hwc
    ./load.sh
    ```
 
-   This script will:
-
-   - Wait for the MySQL server to be ready.
-   - Create a database named `test_db`.
-   - Populate it with sample data.
-
 6. **Run the LangChain Script**:
 
    Execute the Python script to interact with the MySQL database:
@@ -86,7 +80,7 @@ This repository demonstrates how to integrate [LangChain](https://github.com/hwc
 
    This script will:
 
-   - Connect to the `test_db` database.
+   - Connect to the configured database.
    - Execute sample queries using LangChain.
    - Display the results.
 
