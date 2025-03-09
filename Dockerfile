@@ -19,8 +19,12 @@ COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
-# Install Oh My Zsh
+# Install Oh My Zsh (optional)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" || true
 
+COPY . .
 
-CMD ["zsh"]
+EXPOSE 8000
+
+# Run Uvicorn without reload
+CMD ["python", "-m", "uvicorn", "langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

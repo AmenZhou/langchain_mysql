@@ -8,4 +8,5 @@ pymysql
 python-dotenv
 openai
 langchain-openai
-
+fastapi
+uvicorn

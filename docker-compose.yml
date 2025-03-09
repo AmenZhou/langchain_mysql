@@ -11,7 +11,7 @@ services:
       - "8000:8000"
     networks:
       - teladoc_docker_env
-    command: [ "tail", "-f", "/dev/null"]
+    command: ["python", "-m", "uvicorn", "langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 networks:
   teladoc_docker_env:
