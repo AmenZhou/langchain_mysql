@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Run Uvicorn without reload
-CMD ["python", "-m", "uvicorn", "langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["python", "-m", "uvicorn", "backend.langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

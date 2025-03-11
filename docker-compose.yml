@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   langchain_app:
-    build: .
+    build: ./backend
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
@@ -11,8 +11,18 @@ services:
       - "8000:8000"
     networks:
       - teladoc_docker_env
-    command: ["python", "-m", "uvicorn", "langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
+    command: ["python", "-m", "uvicorn", "backend.langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  frontend:
+    build: ./frontend
+    volumes:
+      - /app/node_modules  # Keep node_modules as a volume
+      - .:/app
+    ports:
+      - "8080:8080"  # Map React's dev server to local machine
+    networks:
+      - teladoc_docker_env
+    stdin_open: true   # Keep the container open
+    tty: true          # Enable interactive terminal
 networks:
   teladoc_docker_env:
     external: true  # Use an already existing network
