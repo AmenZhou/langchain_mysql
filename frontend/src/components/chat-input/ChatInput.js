@@ -32,7 +32,7 @@ const ChatInput = () => {
       });
 
       // Extracting and format AI response
-      const aiMessage = response.data.result.result.replace(/\n/g, "<br/>"); // Convert newlines to HTML
+      const aiMessage = response.data.result.replace(/\n/g, "<br/>"); // Convert newlines to HTML
 
       // Displaying response to chat
       setMessages((prev) => [
