@@ -3,15 +3,27 @@ version: '3.8'
 services:
   langchain_app:
     build: ./backend
+    container_name: langchain_app
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Any other env variables you need
     volumes:
-      - .:/app  # Mount your local project directory to /app in the container
+      - .:/app  # mount local code
     ports:
       - "8000:8000"
     networks:
       - teladoc_docker_env
-    command: ["python", "-m", "uvicorn", "backend.langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: [
+      "python",
+      "-m",
+      "uvicorn",
+      "backend.langchain_mysql:app",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8000",
+      "--reload"
+    ]
   frontend:
     build: ./frontend
     volumes:
@@ -25,4 +37,4 @@ services:
     tty: true          # Enable interactive terminal
 networks:
   teladoc_docker_env:
-    external: true  # Use an already existing network
+    external: true

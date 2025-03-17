@@ -1,0 +1,15 @@
+INCLUDED_TABLES = [
+    "consultations",
+    "members",
+    "persons",
+    # "invoices",
+    # "invoice_items",
+    # "provider_panel_extensions",
+    # "member_provider_relations",
+    # "care_team_relations",
+    "parties",
+    "party_addresses",
+    "clinical_notes",
+    "clinical_diagnoses",
+    "clinical_documents",
+]
