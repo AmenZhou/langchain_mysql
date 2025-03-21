@@ -24,7 +24,17 @@ services:
       "8000",
       "--reload"
     ]
-
+  frontend:
+    build: ./frontend
+    volumes:
+      - /app/node_modules  # Keep node_modules as a volume
+      - .:/app
+    ports:
+      - "3000:3000"  # Map React's dev server to local machine
+    networks:
+      - teladoc_docker_env
+    stdin_open: true   # Keep the container open
+    tty: true          # Enable interactive terminal
 networks:
   teladoc_docker_env:
     external: true

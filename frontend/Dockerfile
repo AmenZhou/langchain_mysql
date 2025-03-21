@@ -2,7 +2,7 @@
 FROM node:16-alpine
 
 # Set working directory inside the container
-WORKDIR /app
+WORKDIR /frontend
 
 COPY package.json ./
 
@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Expose port 3000 for React dev server
-EXPOSE 8080
+EXPOSE 3000
 
 # Start the React development server
 CMD ["npm", "start"]

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # ✅ Import CORS Middleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
@@ -19,6 +20,15 @@ load_dotenv()
 
 # ✅ FastAPI App
 app = FastAPI()
+
+# ✅ CORS Middleware to Allow OPTIONS Requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (set specific domains for security)
+    allow_credentials=True,
+    allow_methods=["*"],  # ✅ Allow all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # ✅ Allow all headers
+)
 
 # ✅ Secure API Key Handling
 openai_api_key = os.getenv("OPENAI_API_KEY")

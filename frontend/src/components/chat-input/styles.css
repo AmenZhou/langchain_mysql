@@ -1,0 +1,156 @@
+/* General Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+.title {
+  color: #0078FF;
+  padding-bottom: 12px;
+}
+
+/* ChatGPT-style Full Screen Chat */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: #F7F7F8; /* Light background */
+  justify-content: flex-end;
+  align-items: center;
+  padding: 20px;
+  position: relative; /* Required for absolute positioning of logo */
+}
+
+/* ✅ Logo Styling */
+.chat-logo {
+  position: absolute;
+  top: 10px;
+  left: 20px;
+  width: 150px; /* Adjust as needed */
+  height: auto;
+  max-width: 100%;
+}
+
+/* Chat Messages (Scrollable) */
+.chat-messages {
+  width: 100%;
+  max-width: 800px;
+  height: 80vh;
+  overflow-y: auto;
+  background-color: #FFFFFF; /* White background */
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Message Styling */
+.message {
+  padding: 12px 15px;
+  margin: 5px;
+  border-radius: 10px;
+  max-width: 75%;
+  word-wrap: break-word;
+  font-size: 16px;
+}
+
+/* User Messages */
+.user {
+  align-self: flex-end;
+  background-color: #0078FF; /* Blue */
+  color: white;
+  text-align: right;
+}
+
+/* AI Bot Messages */
+.bot {
+  align-self: flex-start;
+  background-color: #E8EAF6; /* Light purple */
+  color: #333;
+}
+
+/* Chat Input Box */
+.chat-input-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 800px;
+  background-color: #F1F1F1; /* Light gray */
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Input Field */
+.chat-input {
+  flex: 1;
+  padding: 10px;
+  font-size: 16px;
+  background-color: #FFFFFF;
+  color: #333;
+  border: 1px solid #CCC;
+  border-radius: 8px;
+  outline: none;
+}
+
+/* Placeholder Text */
+.chat-input::placeholder {
+  color: #999;
+}
+
+/* Send Button */
+.chat-send-btn {
+  margin-left: 10px;
+  background-color: #0078FF;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+}
+
+.chat-send-btn:hover {
+  background-color: #005ECC;
+}
+
+/* Send Icon */
+.chat-send-icon {
+  color: white;
+  font-size: 18px;
+}
+
+/* Scrollbar Styling */
+.chat-messages::-webkit-scrollbar {
+  width: 5px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: #E0E0E0;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: #B0B0B0;
+  border-radius: 5px;
+}
+
+/* Style for JSON Response */
+.message pre {
+  background-color: #F3F3F3;
+  color: #333;
+  padding: 10px;
+  border-radius: 5px;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-width: 100%;
+  display: block;
+}
