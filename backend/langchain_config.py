@@ -10,10 +10,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 # ✅ Use GPT-3.5-Turbo for Faster Processing
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
-from langchain.memory import ConversationBufferMemory
 
 # ✅ Summarized Memory to Reduce Token Usage
-memory = ConversationBufferMemory(llm=llm, memory_key="history")
+memory = ConversationSummaryMemory(llm=llm, memory_key="history", max_token_limit=500, output_key="result")
 
 # ✅ Define a prompt template with memory integration
 prompt = PromptTemplate(
