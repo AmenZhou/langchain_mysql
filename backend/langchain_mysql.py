@@ -1,22 +1,19 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware  # ✅ Import CORS Middleware
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import time
 import asyncio
-from openai import OpenAIError, OpenAI
-from langchain_experimental.sql import SQLDatabaseChain
-from langchain_community.utilities import SQLDatabase
-from langchain_openai import ChatOpenAI
-from sqlalchemy import create_engine, MetaData, text
-from langchain.memory import ConversationSummaryMemory
-from langchain.prompts import PromptTemplate
-import re
-from backend.included_tables import INCLUDED_TABLES
+from openai import OpenAIError
+from sqlalchemy import text
+from pymysql.err import ProgrammingError
 import logging
 import traceback
-from pymysql.err import ProgrammingError
+
+from backend.database import engine, db  # Import database objects
+from backend.langchain_config import llm, memory, db_chain  # Import Langchain components
+from backend.models import QueryRequest  # Import the Pydantic model
+from backend.utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
 
 # ✅ Load Environment Variables
 load_dotenv()
@@ -31,99 +28,11 @@ logging.basicConfig(level=logging.INFO)
 # ✅ CORS Middleware to Allow OPTIONS Requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (set specific domains for security)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # ✅ Allow all methods (GET, POST, OPTIONS, etc.)
-    allow_headers=["*"],  # ✅ Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# ✅ Secure API Key Handling
-openai_api_key = os.getenv("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=openai_api_key)
-
-# ✅ Correct Database Connection (Ensure password is set!)
-DB_URI = "mysql+pymysql://root:@mysql:3306/dev_tas_live"
-engine = create_engine(DB_URI)
-
-# ✅ Solution 1: Minimize or disable reflection for SQLDatabase
-metadata = MetaData()  # Do not auto-reflect large foreign key relationships
-
-# ✅ Include only necessary tables, skipping reflection
-db = SQLDatabase(engine, metadata=metadata, include_tables=INCLUDED_TABLES)
-
-# ✅ Use GPT-3.5-Turbo for Faster Processing
-llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
-
-# ✅ Summarized Memory to Reduce Token Usage
-memory = ConversationSummaryMemory(llm=llm, memory_key="history", max_token_limit=200, output_key="result")
-
-# ✅ Define a prompt template with memory integration
-prompt = PromptTemplate(
-    input_variables=["history", "query"],
-    template="Chat History: {history}\nUser: {query}"
-)
-
-# ✅ Solution 2: top_k=1 to reduce query complexity
-db_chain = SQLDatabaseChain.from_llm(
-    llm,
-    db,
-    verbose=True,
-    return_intermediate_steps=True,
-    memory=memory,
-    top_k=1
-)
-
-# ✅ Input model
-class QueryRequest(BaseModel):
-    question: str
-
-# ✅ Prompt for the Refinement AI
-PROMPT_REFINE = """You are an expert prompt engineer. Your task is to take a user's natural language query and refine it so that it will reliably generate a raw SQL query using a language model connected to a SQL database via Langchain. The goal is to get only the SQL query without any extra explanations or execution results.
-
-Here is the user's query: '{user_query}'
-
-Please rewrite the user's query to be more explicit and direct in asking for the raw SQL query. Ensure the refined query clearly specifies the tables and columns involved and asks for the SQL to be returned without execution or additional text."""
-
-# ✅ Function to refine the prompt using AI
-async def refine_prompt_with_ai(user_query: str) -> str | None:
-    try:
-        refine_prompt = PROMPT_REFINE.format(user_query=user_query)
-        refinement_response = await openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",  # You can choose a different model if you prefer
-            messages=[{"role": "user", "content": refine_prompt}],
-            temperature=0.2,  # Keep it relatively low for more consistent refinement
-        )
-        refined_query = refinement_response.choices[0].message.content.strip()
-        logger.info(f"Refined query: {refined_query}")
-        return refined_query
-    except OpenAIError as e:
-        logger.error(f"Error during prompt refinement: {e}")
-        logger.error(traceback.format_exc())
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error during prompt refinement: {e}")
-        logger.error(traceback.format_exc())
-        return None
-
-# ✅ Secondary Prompt to Review SQL Response and Remove PHI/PII (Allow IDs)
-def sanitize_sql_response(response: str) -> str:
-    if len(response) > 1000:
-        response = response[:1000] + " ... [Truncated for Speed]"
-
-    review_prompt = f"""
-    You are a data privacy filter. Your job is to review the SQL response below and redact any Protected Health Information (PHI) or Personally Identifiable Information (PII), including names, addresses, medical records, and other sensitive details.
-
-    SQL Response:
-    {response}
-
-    Please return the sanitized response with all PHI/PII redacted, but allow numeric IDs (e.g., user IDs, document IDs) to remain.
-    """
-    try:
-        sanitized_response = llm.predict(review_prompt)
-        return sanitized_response
-    except OpenAIError as e:
-        logger.error(f"Error during sanitization: {e}")
-        return response  # Return the original response if sanitization fails
 
 # ✅ Asynchronous Query Execution to Improve Speed
 async def run_query_with_retry(user_query, retries=3):
@@ -139,7 +48,7 @@ async def run_query_with_retry(user_query, retries=3):
             response_dict = await asyncio.to_thread(db_chain, {"query": refined_query})
             logger.info(f"Raw response from db_chain: {response_dict}")
             response = response_dict.get("result", "")
-            response = sanitize_sql_response(response)
+            response = await sanitize_sql_response(response, llm)
             memory.save_context({"query": user_query}, {"result": response})
             return response
         except OpenAIError as e:
