@@ -70,7 +70,53 @@ For more information on the technologies used in this project, consider explorin
 - [Chat With a MySQL Database Using Python and LangChain](https://alejandro-ao.com/chat-with-mysql-using-python-and-langchain/)
 - [LangChain SQL Database Chain Example](https://github.com/sugarforever/LangChain-SQL-Chain)
 - [LangChain Documentation on SQL Database Agents](https://python.langchain.com/docs/integrations/sql_database_agents)
+  
+## Diagram
+```mermaid
+graph TD
+    User((User))
+    %% External LLMs (RefineLLM, MainLLM, FilterLLM) will be defined implicitly below
 
+    subgraph Docker_Environment
+        %% Define container nodes directly within this subgraph
+        Frontend["Frontend App (React/Node.js Container)"]
+        Backend["LangChain Backend (Python Container)"]
+        DB["MySQL DB Container"]
+
+        %% --- Flow of Operations ---
+        %% 1. User query passes through Frontend to Backend
+        Frontend -- ① HTTP Request (Raw NL Query) --> Backend
+
+        %% 2. Backend uses Refine LLM to refine prompt
+        Backend -- ② Raw NL Query --> RefineLLM["LLM (Prompt Refiner)"]
+        RefineLLM -- ③ Refined Prompt --> Backend
+
+        %% 3. Backend sends Refined Prompt to Main LLM for Execution
+        Backend -- ④ Refined Prompt + Schema Context --> MainLLM["LLM (NL-to-SQL + Executor)"]
+        MainLLM -- ⑤ Executes SQL --> DB
+        DB -- ⑥ Raw DB Result --> MainLLM
+        MainLLM -- ⑦ Raw DB Result --> Backend
+
+        %% 4. Backend uses Filter LLM to sanitize the received result
+        Backend -- ⑧ Raw DB Result + Filter Prompt --> FilterLLM["LLM (PII Filter)"]
+        FilterLLM -- ⑨ Sanitized Result --> Backend
+
+        %% 5. Backend sends sanitized result to Frontend
+        Backend -- ⑩ Sanitized API Response --> Frontend
+        %% --- End Flow ---
+    end
+
+    %% --- Styling (applied after nodes are implicitly defined/used) ---
+    style Frontend fill:#efe,stroke:#333,stroke-width:2px
+    style Backend fill:#f9f,stroke:#333,stroke-width:2px
+    style DB fill:#ccf,stroke:#333,stroke-width:2px
+    style RefineLLM fill:#cfc,stroke:#696,stroke-width:1px,stroke-dasharray: 3 3
+    style MainLLM fill:#ffc,stroke:#996,stroke-width:1px,stroke-dasharray: 3 3
+    style FilterLLM fill:#fcc,stroke:#966,stroke-width:1px,stroke-dasharray: 3 3
+
+    %% --- User Interaction ---
+    User -- Interacts (e.g., via Browser) --> Frontend
+```
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
