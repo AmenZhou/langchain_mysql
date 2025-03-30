@@ -162,6 +162,30 @@ flowchart TD
     style C2 fill:#ffc,stroke:#996
     style D2 fill:#9f9,stroke:#0f0,stroke-width:2px
 ```
+### PHI/PII Filter LLM
+```mermaid
+graph TD
+
+    subgraph Docker_Environment
+        %% Define container nodes directly within this subgraph
+
+        Backend["LangChain Backend (Python Container)"]
+
+
+       
+        %% 4. Backend uses Filter LLM to sanitize the received result
+        Backend --  Raw DB Result + Filter Prompt --> FilterLLM["LLM (PII Filter)"]
+        FilterLLM -- Sanitized Result --> Backend
+
+    end
+
+    %% --- Styling (applied after nodes are implicitly defined/used) ---
+
+    style Backend fill:#f9f,stroke:#333,stroke-width:2px
+
+    style FilterLLM fill:#fcc,stroke:#966,stroke-width:1px,stroke-dasharray: 3 3
+```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
