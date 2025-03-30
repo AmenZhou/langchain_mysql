@@ -117,6 +117,51 @@ graph TD
     %% --- User Interaction ---
     User -- Interacts (e.g., via Browser) --> Frontend
 ```
+### Resolve Token Rate Limit Exceeded Problem
+
+```mermaid
+---
+config:
+  layout: fixed
+---
+flowchart TD
+ subgraph subGraph0["Problem: Using Full Schema"]
+    direction LR
+        B1["LLM Prompt (Exceeds Limit)"]
+        A1[("Full DB Schema")]
+        C1("LLM")
+        D1{{"Error: Token Limit Exceeded"}}
+  end
+ subgraph subGraph1["Workaround: Using Subset Schema"]
+    direction LR
+        S[("Subset Schema")]
+        Filter@{ label: "Subset Selection / `top_k=1`" }
+        A2[("Full DB Schema")]
+        B2["LLM Prompt (Within Limit)"]
+        U["User Query"]
+        C2("LLM")
+        D2{{"OK: Query Processed"}}
+  end
+    A1 -- Schema Info (Very Large) --> B1
+    B1 --> C1
+    C1 --> D1
+    A2 --> Filter
+    Filter --> S
+    U --> B2
+    S -- Schema Info (Small) --> B2
+    B2 --> C2
+    C2 --> D2
+    Filter@{ shape: diamond}
+    style A1 fill:#ccc,stroke:#666
+    style C1 fill:#ffc,stroke:#996
+    style D1 fill:#f99,stroke:#f00,stroke-width:2px
+    style S fill:#ccf,stroke:#33f
+    style Filter fill:#ddd, stroke:#555 %% Style the filter process node
+    style A2 fill:#ccc,stroke:#666
+    style U fill:#eee, stroke:#555 %% Style the User Query node
+    style C2 fill:#ffc,stroke:#996
+    style D2 fill:#9f9,stroke:#0f0,stroke-width:2px
+```
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
