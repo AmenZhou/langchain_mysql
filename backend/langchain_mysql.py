@@ -11,9 +11,10 @@ import logging
 import traceback
 
 from backend.database import engine, db  # Import database objects
-from backend.langchain_config import llm, memory, db_chain  # Import Langchain components
+from backend.langchain_config import llm, memory, db_chain, create_db_chain_with_schema  # Import Langchain components
 from backend.models import QueryRequest  # Import the Pydantic model
 from backend.utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
+from backend.schema_vectorizer import preload_schema_to_vectordb  # Import schema vectorization
 
 # ✅ Load Environment Variables
 load_dotenv()
@@ -35,7 +36,7 @@ app.add_middleware(
 )
 
 # ✅ Asynchronous Query Execution to Improve Speed
-async def run_query_with_retry(user_query, retries=3):
+async def run_query_with_retry(user_query, retries=3, use_schema=True):
     refined_query = await refine_prompt_with_ai(user_query)
 
     if not refined_query:
@@ -45,7 +46,17 @@ async def run_query_with_retry(user_query, retries=3):
     for attempt in range(retries):
         try:
             logger.info(f"Attempt {attempt + 1} to run refined query: {refined_query}")
-            response_dict = await asyncio.to_thread(db_chain, {"query": refined_query})
+            
+            # Use schema-enhanced chain if requested
+            if use_schema:
+                # Get a custom chain with schema information for this query
+                custom_chain, prompt_with_schema = create_db_chain_with_schema(refined_query)
+                logger.info(f"Using schema-enhanced prompt: {prompt_with_schema[:100]}...")
+                response_dict = await asyncio.to_thread(custom_chain, {"query": refined_query})
+            else:
+                # Use the original chain without schema enhancement
+                response_dict = await asyncio.to_thread(db_chain, {"query": refined_query})
+            
             logger.info(f"Raw response from db_chain: {response_dict}")
             response = response_dict.get("result", "")
             response = await sanitize_sql_response(response, llm)
@@ -86,7 +97,7 @@ async def run_query_with_retry(user_query, retries=3):
 async def query_database(request: QueryRequest):
     try:
         logger.info(f"Received user query: {request.question}")
-        response = await run_query_with_retry(request.question)
+        response = await run_query_with_retry(request.question, use_schema=True)
         if not response:
             logger.error("No result returned from LangChain.")
             raise HTTPException(status_code=500, detail="No result returned from LangChain.")
@@ -106,3 +117,25 @@ async def query_database(request: QueryRequest):
 async def reset_memory():
     memory.clear()
     return {"message": "Chat memory cleared successfully!"}
+
+# ✅ Endpoint to Preload Schema to Vector Database
+@app.post("/preload_schema")
+async def preload_schema():
+    try:
+        await asyncio.to_thread(preload_schema_to_vectordb)
+        return {"message": "Schema preloaded to vector database successfully!"}
+    except Exception as e:
+        logger.error(f"Error preloading schema: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error preloading schema: {e}")
+
+# ✅ Preload schema on startup
+@app.on_event("startup")
+async def startup_event():
+    try:
+        logger.info("Preloading schema to vector database on startup...")
+        await asyncio.to_thread(preload_schema_to_vectordb)
+        logger.info("Schema preloaded successfully!")
+    except Exception as e:
+        logger.error(f"Error preloading schema on startup: {e}")
+        logger.error(traceback.format_exc())

@@ -8,6 +8,7 @@ This repository demonstrates how to integrate [LangChain](https://github.com/hwc
 - **Dockerized React Frontend**: Provides a user interface built with React, running in a Docker container.
 - **LangChain Integration**: Connects to a MySQL database and interacts with it using LangChain's SQL capabilities.
 - **API Endpoint**: The FastAPI backend exposes an API endpoint for the frontend to send natural language queries.
+- **Schema Vectorization**: Preloads database schema into a vector database for improved query accuracy.
 
 ## Prerequisites
 
@@ -57,6 +58,29 @@ This repository demonstrates how to integrate [LangChain](https://github.com/hwc
 2.  **Interact with the Backend**: The frontend application will provide an interface where you can enter your natural language questions. These questions will be sent to the FastAPI backend (likely running on `http://localhost:8000` if you're using the default configuration) at the `/query` endpoint.
 
 3.  **Receive the Response**: The backend will process your query using LangChain, generate the SQL, interact with the MySQL database, and return a JSON response to the frontend. This response will typically contain the answer to your question and the generated SQL query.
+
+4.  **Preload Schema (Optional)**: The database schema is automatically preloaded into a vector database on startup. If you want to manually preload it, you can use the following API endpoint:
+
+    ```bash
+    curl -X POST http://localhost:8000/preload_schema
+    ```
+
+    Alternatively, you can run the preload script directly:
+
+    ```bash
+    python -m backend.preload_schema --persist-dir ./chroma_db
+    ```
+
+## Schema Vectorization
+
+This application uses a vector database to store and retrieve database schema information. This significantly improves query accuracy by providing relevant schema context to the LLM. Key benefits include:
+
+- **Improved SQL Generation**: The LLM has access to accurate table and column information
+- **Better Relationship Understanding**: Foreign key relationships are properly understood
+- **Semantic Search**: Natural language queries are matched to the most relevant schema elements
+- **Reduced Hallucinations**: The LLM is less likely to generate SQL with non-existent tables or columns
+
+The schema information is automatically preloaded when the application starts.
 
 ## Additional Resources
 

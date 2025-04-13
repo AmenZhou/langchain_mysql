@@ -10,3 +10,5 @@ openai
 langchain-openai
 fastapi
 uvicorn
+chromadb
+sentence-transformers
