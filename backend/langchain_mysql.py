@@ -11,7 +11,7 @@ import logging
 import traceback
 
 from backend.database import engine, db  # Import database objects
-from backend.langchain_config import llm, memory, db_chain, create_db_chain_with_schema  # Import Langchain components
+from backend.langchain_config import chat_model, memory, db_chain, create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
 from backend.models import QueryRequest  # Import the Pydantic model
 from backend.utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
 from backend.schema_vectorizer import preload_schema_to_vectordb  # Import schema vectorization
@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # ✅ Asynchronous Query Execution to Improve Speed
-async def run_query_with_retry(user_query, retries=3, use_schema=True):
+async def run_query_with_retry(user_query, retries=5, use_schema=True):
     refined_query = await refine_prompt_with_ai(user_query)
 
     if not refined_query:
@@ -59,14 +59,19 @@ async def run_query_with_retry(user_query, retries=3, use_schema=True):
             
             logger.info(f"Raw response from db_chain: {response_dict}")
             response = response_dict.get("result", "")
-            response = await sanitize_sql_response(response, llm)
+            response = await sanitize_sql_response(response, chat_model)
             memory.save_context({"query": user_query}, {"result": response})
             return response
         except OpenAIError as e:
-            if "rate_limit_exceeded" in str(e):
-                wait_time = 2**attempt
-                print(f"Rate limit exceeded, retrying in {wait_time} seconds...")
+            if "rate_limit_exceeded" in str(e) or "429" in str(e):
+                # Use our custom backoff strategy
+                wait_time = await asyncio.to_thread(backoff_with_jitter, attempt)
+                logger.warning(f"Rate limit exceeded, retrying in {wait_time:.2f} seconds... (Attempt {attempt+1}/{retries})")
                 await asyncio.sleep(wait_time)
+                # If this was our last retry, raise the exception
+                if attempt == retries - 1:
+                    logger.error(f"Failed after {retries} retries due to rate limits")
+                    raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded. Please try again later.")
             else:
                 logger.error(f"OpenAI Error during query: {e}")
                 logger.error(traceback.format_exc())

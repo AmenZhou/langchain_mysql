@@ -14,4 +14,10 @@ engine = create_engine(DB_URI)
 metadata = MetaData()  # Do not auto-reflect large foreign key relationships
 
 # ✅ Include only necessary tables, skipping reflection
-db = SQLDatabase(engine, metadata=metadata, include_tables=INCLUDED_TABLES)
+# Note: We disabled foreign key resolution by setting a limited list of tables
+db = SQLDatabase(
+    engine, 
+    metadata=metadata, 
+    include_tables=INCLUDED_TABLES,
+    sample_rows_in_table_info=2  # Reduce the number of sample rows to minimize token usage
+)

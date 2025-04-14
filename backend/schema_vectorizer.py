@@ -75,33 +75,19 @@ def create_schema_documents(tables: List[str] = None) -> List[Document]:
     for table_name in tables:
         schema_info = extract_table_schema(table_name)
         
-        # Create a human-readable description
-        description = f"Table: {table_name}\n\n"
+        # Create an extremely minimal description
+        description = f"{table_name}:"
         
-        # Add column information
-        description += "Columns:\n"
-        for col in schema_info.get("columns", []):
-            pk_indicator = "[PK]" if col.get("primary_key") else ""
-            nullable = "NULL" if col.get("nullable") else "NOT NULL"
-            default = f"DEFAULT {col.get('default')}" if col.get("default") != "None" else ""
-            description += f"- {col.get('name')} {pk_indicator}: {col.get('type')} {nullable} {default}\n"
+        # Add only column names, skip types and other details
+        columns = [col.get('name') for col in schema_info.get("columns", [])]
         
-        # Add foreign key information
-        fks = schema_info.get("foreign_keys", [])
-        if fks:
-            description += "\nForeign Keys:\n"
-            for fk in fks:
-                ref_table = fk.get("referred_table")
-                ref_cols = fk.get("referred_columns", [])
-                constrained_cols = fk.get("constrained_columns", [])
-                ref_cols_str = ", ".join(ref_cols)
-                constrained_cols_str = ", ".join(constrained_cols)
-                description += f"- {constrained_cols_str} REFERENCES {ref_table}({ref_cols_str})\n"
+        # Join columns with spaces to save even more space
+        description += " ".join(columns)
         
-        # Create metadata with the raw schema information
+        # Create metadata with minimal schema information
         metadata = {
             "table_name": table_name,
-            "schema": json.dumps(schema_info)
+            "columns": [col.get("name") for col in schema_info.get("columns", [])]
         }
         
         # Create the document
@@ -154,17 +140,25 @@ def query_schema_vectordb(query: str, persist_directory: str = "./chroma_db", k:
         logger.error(f"Error querying schema vector database: {e}")
         raise
 
-def get_schema_as_text(query: Optional[str] = None, k: int = 5) -> str:
+def get_schema_as_text(query: Optional[str] = None, k: int = 1) -> str:
     """Get schema information as formatted text, optionally filtered by a query."""
     try:
         if query:
             # If query is provided, search for relevant schema info
             results = query_schema_vectordb(query, k=k)
-            schema_text = "\n\n".join([doc.page_content for doc in results])
+            # Only include essential information for each table
+            schema_texts = []
+            for doc in results:
+                # Use the minimal format directly
+                schema_texts.append(doc.page_content)
+            schema_text = "\n".join(schema_texts)
         else:
-            # If no query, get all schema info
+            # If no query, get all schema info but limit to essential information
             schema_documents = create_schema_documents()
-            schema_text = "\n\n".join([doc.page_content for doc in schema_documents])
+            schema_texts = []
+            for doc in schema_documents:
+                schema_texts.append(doc.page_content)
+            schema_text = "\n".join(schema_texts)
         
         return schema_text
     

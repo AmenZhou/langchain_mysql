@@ -1,12 +1,12 @@
 # ✅ Prompt for the Refinement AI
 PROMPT_REFINE = """You are an expert prompt engineer. Your task is to take a user's natural language query and refine it to reliably generate a raw SQL query using a language model connected to a SQL database via Langchain. The goal is to get ONLY the SQL query, without any extra explanations, execution results, or natural language.
 
-The user is asking about the following database schema (you already have access to this): {database_schema}
+{database_schema_info}
 
 Here is the user's query: '{user_query}'
 
 Please rewrite the user's query to be very explicit and direct in asking for the raw SQL query. Ensure the refined query:
-- Clearly specifies the table(s) involved (in this case, likely 'consult_statuses').
+- Clearly specifies the table(s) involved.
 - Clearly specifies the columns to retrieve (ideally all columns using '*').
 - Clearly specifies the condition for filtering (e.g., 'where the consultation_id is equal to 1').
 - Ends with a request for the raw SQL query only.
