@@ -1,6 +1,6 @@
 from sqlalchemy import inspect, MetaData
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.schema import Document
 import json
 import os
@@ -9,10 +9,18 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from backend.database import engine, db
-from backend.included_tables import INCLUDED_TABLES
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+def get_all_tables() -> List[str]:
+    """Get all table names from the database."""
+    try:
+        inspector = inspect(engine)
+        return inspector.get_table_names()
+    except SQLAlchemyError as e:
+        logger.error(f"Error getting table names: {e}")
+        return []
 
 # Set up the embedding model
 def get_embeddings():
@@ -65,10 +73,12 @@ def extract_table_schema(table_name: str) -> Dict[str, Any]:
         logger.error(f"Error extracting schema for table {table_name}: {e}")
         return {"table_name": table_name, "error": str(e)}
 
-def create_schema_documents(tables: List[str] = None) -> List[Document]:
+def create_schema_documents() -> List[Document]:
     """Create Document objects for each table schema to be embedded."""
-    if tables is None:
-        tables = INCLUDED_TABLES
+    tables = get_all_tables()
+    if not tables:
+        logger.warning("No tables found in the database.")
+        return []
     
     documents = []
     
@@ -107,19 +117,20 @@ def preload_schema_to_vectordb(persist_directory: str = "./chroma_db") -> None:
             logger.warning("No schema documents created. Vector database not updated.")
             return
         
-        # Create vector store with schema documents
-        embeddings = get_embeddings()
-        vectordb = Chroma.from_documents(
-            documents=schema_documents,
-            embedding=embeddings,
-            persist_directory=persist_directory
-        )
+        try:
+            # Try to create and persist vector store
+            embeddings = get_embeddings()
+            vectordb = Chroma.from_documents(
+                documents=schema_documents,
+                embedding=embeddings,
+                persist_directory=persist_directory
+            )
+            vectordb.persist()
+            logger.info(f"Successfully preloaded schema for {len(schema_documents)} tables to vector database")
+        except Exception as e:
+            logger.warning(f"Failed to create vector store: {e}. Will use fallback mechanism.")
         
-        # Persist to disk
-        vectordb.persist()
-        
-        logger.info(f"Successfully preloaded schema for {len(schema_documents)} tables to vector database")
-        return vectordb
+        return schema_documents
     
     except Exception as e:
         logger.error(f"Error preloading schema to vector database: {e}")
@@ -143,24 +154,37 @@ def query_schema_vectordb(query: str, persist_directory: str = "./chroma_db", k:
 def get_schema_as_text(query: Optional[str] = None, k: int = 1) -> str:
     """Get schema information as formatted text, optionally filtered by a query."""
     try:
-        if query:
-            # If query is provided, search for relevant schema info
-            results = query_schema_vectordb(query, k=k)
-            # Only include essential information for each table
-            schema_texts = []
-            for doc in results:
-                # Use the minimal format directly
-                schema_texts.append(doc.page_content)
-            schema_text = "\n".join(schema_texts)
-        else:
-            # If no query, get all schema info but limit to essential information
-            schema_documents = create_schema_documents()
+        # Create schema documents directly
+        schema_documents = create_schema_documents()
+        if not schema_documents:
+            logger.warning("No schema documents created.")
+            return ""
+
+        # If no query, return all schema info
+        if not query:
             schema_texts = []
             for doc in schema_documents:
                 schema_texts.append(doc.page_content)
-            schema_text = "\n".join(schema_texts)
-        
-        return schema_text
+            return "\n".join(schema_texts)
+
+        # If query provided, try vector search first
+        try:
+            results = query_schema_vectordb(query, k=k)
+            schema_texts = [doc.page_content for doc in results]
+            return "\n".join(schema_texts)
+        except Exception as e:
+            logger.warning(f"Vector search failed, falling back to full schema: {e}")
+            # Simple keyword matching as fallback
+            matched_docs = []
+            query_terms = query.lower().split()
+            for doc in schema_documents:
+                content = doc.page_content.lower()
+                if any(term in content for term in query_terms):
+                    matched_docs.append(doc)
+            if matched_docs:
+                return "\n".join(doc.page_content for doc in matched_docs[:k])
+            # If no matches, return all schema info
+            return "\n".join(doc.page_content for doc in schema_documents)
     
     except Exception as e:
         logger.error(f"Error getting schema as text: {e}")
