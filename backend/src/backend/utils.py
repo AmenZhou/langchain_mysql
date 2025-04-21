@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 async def refine_prompt_with_ai(query: str) -> Optional[str]:
     try:
         schema_vectorizer = SchemaVectorizer()
-        schema_docs = await schema_vectorizer.get_schema_documents()
+        schema_docs = schema_vectorizer.get_relevant_schema()
         
         openai_client = get_openai_client()
         response = await openai_client.chat.completions.create(
