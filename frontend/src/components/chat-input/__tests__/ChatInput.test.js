@@ -89,4 +89,91 @@ describe('ChatInput Component', () => {
     // Check that no API call was made
     expect(axios.post).not.toHaveBeenCalled();
   });
+
+  it('displays nonexistent table error from backend', async () => {
+    // Mock API error for nonexistent table
+    const mockError = {
+      response: {
+        status: 400,
+        data: {
+          detail: 'Database Error: Table "nonexistent_table" does not exist'
+        }
+      }
+    };
+    axios.post.mockImplementation(() => new Promise((_, reject) => {
+      setTimeout(() => reject(mockError), 100);
+    }));
+
+    render(<ChatInput />);
+    const input = screen.getByPlaceholderText('Find the data you need...');
+    
+    // Type a message and press enter
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Show me data from nonexistent_table' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    // Wait for the error message to appear
+    await waitFor(() => {
+      expect(screen.getByText('❌ Database Error: Table "nonexistent_table" does not exist')).toBeInTheDocument();
+    });
+  });
+
+  it('displays rate limit error from backend', async () => {
+    // Mock API error for rate limit
+    const mockError = {
+      response: {
+        status: 429,
+        data: {
+          detail: 'Rate limit exceeded. Please try again later.'
+        }
+      }
+    };
+    axios.post.mockImplementation(() => new Promise((_, reject) => {
+      setTimeout(() => reject(mockError), 100);
+    }));
+
+    render(<ChatInput />);
+    const input = screen.getByPlaceholderText('Find the data you need...');
+    
+    // Type a message and press enter
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Any question' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    // Wait for the error message to appear
+    await waitFor(() => {
+      expect(screen.getByText('❌ Rate limit exceeded. Please try again later.')).toBeInTheDocument();
+    });
+  });
+
+  it('displays general database error from backend', async () => {
+    // Mock API error for general database error
+    const mockError = {
+      response: {
+        status: 500,
+        data: {
+          detail: 'An unexpected database error occurred'
+        }
+      }
+    };
+    axios.post.mockImplementation(() => new Promise((_, reject) => {
+      setTimeout(() => reject(mockError), 100);
+    }));
+
+    render(<ChatInput />);
+    const input = screen.getByPlaceholderText('Find the data you need...');
+    
+    // Type a message and press enter
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Any question' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    // Wait for the error message to appear
+    await waitFor(() => {
+      expect(screen.getByText('❌ An unexpected database error occurred')).toBeInTheDocument();
+    });
+  });
 }); 

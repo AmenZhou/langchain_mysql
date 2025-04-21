@@ -4,14 +4,17 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "4000:3000"
+      - "4000:4000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - PORT=4000
     depends_on:
       - langchain_app
+    networks:
+      - teladoc_docker_env
 
   langchain_app:
     build: ./backend
