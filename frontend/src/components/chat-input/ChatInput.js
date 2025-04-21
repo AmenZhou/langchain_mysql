@@ -41,9 +41,16 @@ const ChatInput = () => {
       ]);
     } catch (error) {
       console.error("Error fetching AI response:", error);
+      let errorMessage = "❌ Error connecting to AI server.";
+      
+      // Check if the error has a response from the backend
+      if (error.response && error.response.data && error.response.data.detail) {
+        errorMessage = `❌ ${error.response.data.detail}`;
+      }
+      
       setMessages((prev) => [
         ...prev,
-        { text: "❌ Error connecting to AI server.", sender: "bot" },
+        { text: errorMessage, sender: "bot" },
       ]);
     } finally {
       setLoading(false);
@@ -51,7 +58,7 @@ const ChatInput = () => {
   };
 
   return (
-    <div className="chat-container">
+    <div className="chat-container" data-testid="chat-input">
       {/* Chat Window */}
       <h1 className="title">AI Powered DB Assistant</h1>
       <div className="chat-messages">

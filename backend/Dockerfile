@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     zsh \
     build-essential \
     default-libmysqlclient-dev \
+    default-mysql-client \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

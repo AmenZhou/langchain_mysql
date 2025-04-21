@@ -3,8 +3,8 @@ from langchain.memory import ConversationSummaryMemory
 from langchain.prompts import PromptTemplate
 from langchain_experimental.sql import SQLDatabaseChain
 from langchain_community.utilities import SQLDatabase
-from backend.database import db
-from backend.schema_vectorizer import get_schema_as_text
+from database import db
+from schema_vectorizer import get_schema_as_text
 import os
 import time
 import hashlib
@@ -87,7 +87,7 @@ memory = ConversationSummaryMemory(
 
 # Initialize database with minimal wrapper
 db = MinimalSQLDatabase.from_uri(
-    "mysql+pymysql://root:@mysql:3306/dev_tas_live",
+    os.getenv("DATABASE_URL", "mysql+pymysql://root:@localhost:3306/dev_tas_live"),
     include_tables=["active_messages", "message_participants", "message_room_trigger_relations", "message_rooms", "system_messages"]
 )
 

@@ -9,18 +9,35 @@ from sqlalchemy import text
 from pymysql.err import ProgrammingError
 import logging
 import traceback
+import sqlalchemy.exc
+from contextlib import asynccontextmanager
 
-from backend.database import engine, db  # Import database objects
-from backend.langchain_config import chat_model, memory, db_chain, create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
-from backend.models import QueryRequest  # Import the Pydantic model
-from backend.utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
-from backend.schema_vectorizer import preload_schema_to_vectordb  # Import schema vectorization
+from database import engine, db  # Import database objects
+from langchain_config import chat_model, memory, db_chain, create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
+from models import QueryRequest  # Import the Pydantic model
+from utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
+from schema_vectorizer import preload_schema_to_vectordb  # Import schema vectorization
 
 # ✅ Load Environment Variables
 load_dotenv()
 
+# ✅ Lifespan Context Manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        logger.info("Preloading schema to vector database on startup...")
+        await asyncio.to_thread(preload_schema_to_vectordb)
+        logger.info("Schema preloaded successfully!")
+    except Exception as e:
+        logger.error(f"Error preloading schema on startup: {e}")
+        logger.error(traceback.format_exc())
+    yield
+    # Shutdown
+    # Add any cleanup code here if needed
+
 # ✅ FastAPI App
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # ✅ Configure Logging
 logger = logging.getLogger(__name__)
@@ -52,10 +69,10 @@ async def run_query_with_retry(user_query, retries=5, use_schema=True):
                 # Get a custom chain with schema information for this query
                 custom_chain, prompt_with_schema = create_db_chain_with_schema(refined_query)
                 logger.info(f"Using schema-enhanced prompt: {prompt_with_schema[:100]}...")
-                response_dict = await asyncio.to_thread(custom_chain, {"query": refined_query})
+                response_dict = await asyncio.to_thread(lambda: custom_chain.invoke({"query": refined_query}))
             else:
                 # Use the original chain without schema enhancement
-                response_dict = await asyncio.to_thread(db_chain, {"query": refined_query})
+                response_dict = await asyncio.to_thread(lambda: db_chain.invoke({"query": refined_query}))
             
             logger.info(f"Raw response from db_chain: {response_dict}")
             response = response_dict.get("result", "")
@@ -76,6 +93,20 @@ async def run_query_with_retry(user_query, retries=5, use_schema=True):
                 logger.error(f"OpenAI Error during query: {e}")
                 logger.error(traceback.format_exc())
                 raise
+        except (ProgrammingError, sqlalchemy.exc.ProgrammingError) as e:
+            logger.error(f"Database Error during query: {e}")
+            logger.error(traceback.format_exc())
+            error_msg = str(e)
+            if "Table" in error_msg and "doesn't exist" in error_msg:
+                table_name = error_msg.split("'")[1]
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Database Error: The table '{table_name}' does not exist in the database."
+                )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Database Error: {error_msg}"
+            )
         except Exception as e:
             logger.error(f"General error during query: {e}")
             logger.error(traceback.format_exc())
@@ -108,13 +139,14 @@ async def query_database(request: QueryRequest):
             raise HTTPException(status_code=500, detail="No result returned from LangChain.")
         logger.info(f"Final response: {response}")
         return {"result": response}
-    except OpenAIError as e:
-        logger.error(f"OpenAI Error in /query endpoint: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"OpenAI Error: {e}")
+    except HTTPException as e:
+        # Re-raise HTTPExceptions as they are already properly formatted
+        raise e
     except Exception as e:
         logger.error(f"An unexpected error occurred in /query endpoint: {e}")
         logger.error(traceback.format_exc())
+        if "rate_limit" in str(e).lower():
+            raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded. Please try again later.")
         raise HTTPException(status_code=500, detail="An unexpected error occurred. Check server logs for details.")
 
 # ✅ Endpoint to Clear Chat Memory
@@ -133,14 +165,3 @@ async def preload_schema():
         logger.error(f"Error preloading schema: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error preloading schema: {e}")
-
-# ✅ Preload schema on startup
-@app.on_event("startup")
-async def startup_event():
-    try:
-        logger.info("Preloading schema to vector database on startup...")
-        await asyncio.to_thread(preload_schema_to_vectordb)
-        logger.info("Schema preloaded successfully!")
-    except Exception as e:
-        logger.error(f"Error preloading schema on startup: {e}")
-        logger.error(traceback.format_exc())

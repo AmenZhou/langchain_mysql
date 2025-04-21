@@ -1,5 +1,5 @@
 from sqlalchemy import inspect, MetaData
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_chroma import Chroma
 from langchain.schema import Document
 import json
@@ -7,8 +7,11 @@ import os
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from typing import List, Dict, Any, Optional
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
 
-from backend.database import engine, db
+from database import engine, db
 
 # Configure logging
 logger = logging.getLogger(__name__)

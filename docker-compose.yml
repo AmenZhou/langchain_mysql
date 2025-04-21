@@ -1,40 +1,79 @@
 version: '3.8'
 
 services:
-  langchain_app:
-    build: ./backend
-    container_name: langchain_app
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      # Any other env variables you need
-    volumes:
-      - .:/app  # mount local code
-    ports:
-      - "8000:8000"
-    networks:
-      - teladoc_docker_env
-    command: [
-      "python",
-      "-m",
-      "uvicorn",
-      "backend.langchain_mysql:app",
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "8000",
-      "--reload"
-    ]
   frontend:
     build: ./frontend
-    volumes:
-      - /app/node_modules  # Keep node_modules as a volume
-      - .:/app
     ports:
-      - "3000:3000"  # Map React's dev server to local machine
+      - "4000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - langchain_app
+
+  langchain_app:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=mysql+pymysql://root:@host.docker.internal:3306/dev_tas_live
     networks:
       - teladoc_docker_env
-    stdin_open: true   # Keep the container open
-    tty: true          # Enable interactive terminal
+
+  mysql_test:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+      - MYSQL_DATABASE=dev_tas_live
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./backend/test_schema.sql:/docker-entrypoint-initdb.d/test_schema.sql
+    networks:
+      - teladoc_docker_env
+
+  backend_test:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TESTING=true
+      - DATABASE_URL=mysql+pymysql://root:@mysql_test:3306/dev_tas_live
+      - PYTHONPATH=/app
+    working_dir: /app
+    command: >
+      /bin/sh -c "
+        echo 'Waiting for MySQL to be ready...' &&
+        while ! python -c 'import pymysql; pymysql.connect(host=\"mysql_test\", user=\"root\", password=\"\", database=\"dev_tas_live\")' 2>/dev/null; do
+          sleep 1;
+        done &&
+        echo 'MySQL is ready!' &&
+        python -m pytest test_error_handling.py -v
+      "
+    depends_on:
+      - mysql_test
+    networks:
+      - teladoc_docker_env
+
+  frontend_test:
+    build: ./frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CI=true
+    command: npm test -- --watchAll=false
+    depends_on:
+      - langchain_app
+    networks:
+      - teladoc_docker_env
+
 networks:
   teladoc_docker_env:
     external: true

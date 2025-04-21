@@ -1,5 +1,5 @@
 # Use an official Node.js runtime image
-FROM node:16-alpine
+FROM node:18-alpine
 
 # Set working directory inside the container
 WORKDIR /frontend
@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Expose port 3000 for React dev server
-EXPOSE 3000
+EXPOSE 4000
 
 # Start the React development server
-CMD ["npm", "start"]
+CMD ["npm", "start", "PORT=4000"]
