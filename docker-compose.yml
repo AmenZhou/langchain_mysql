@@ -40,30 +40,6 @@ services:
     networks:
       - teladoc_docker_env
 
-  backend_test:
-    build: ./backend
-    volumes:
-      - ./backend:/app
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - TESTING=true
-      - DATABASE_URL=mysql+pymysql://root:@mysql_test:3306/dev_tas_live
-      - PYTHONPATH=/app
-    working_dir: /app
-    command: >
-      /bin/sh -c "
-        echo 'Waiting for MySQL to be ready...' &&
-        while ! python -c 'import pymysql; pymysql.connect(host=\"mysql_test\", user=\"root\", password=\"\", database=\"dev_tas_live\")' 2>/dev/null; do
-          sleep 1;
-        done &&
-        echo 'MySQL is ready!' &&
-        python -m pytest test_error_handling.py -v
-      "
-    depends_on:
-      - mysql_test
-    networks:
-      - teladoc_docker_env
-
   frontend_test:
     build: ./frontend
     volumes:

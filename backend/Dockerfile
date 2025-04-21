@@ -23,12 +23,16 @@ RUN pip install -r requirements.txt
 # Install Oh My Zsh (optional)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" || true
 
+# Copy the package files
 COPY . .
+
+# Install the package in development mode
+RUN pip install -e .
 
 EXPOSE 8000
 
-# Set PYTHONPATH to include the current directory
-ENV PYTHONPATH=/app
+# Set PYTHONPATH to include the package directory
+ENV PYTHONPATH=/app/src:${PYTHONPATH}
 
-# Run Uvicorn without reload
-CMD ["python", "-m", "uvicorn", "langchain_mysql:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Run Uvicorn with the new package structure
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

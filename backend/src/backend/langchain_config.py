@@ -1,10 +1,10 @@
-from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryMemory
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from langchain_experimental.sql import SQLDatabaseChain
 from langchain_community.utilities import SQLDatabase
-from database import db
-from schema_vectorizer import get_schema_as_text
+from .database import get_db
+from .schema_vectorizer import SchemaVectorizer
 import os
 import time
 import hashlib
@@ -17,6 +17,9 @@ import random
 # Cache directory
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
+
+# Initialize schema vectorizer
+schema_vectorizer = SchemaVectorizer()
 
 def backoff_with_jitter(attempt: int, base_delay: float = 1.0, max_delay: float = 32.0) -> float:
     """Exponential backoff with jitter."""
@@ -106,7 +109,7 @@ Write SQL based on the schema above. Use only the tables and columns shown. Keep
 # Function to get relevant schema information based on the query
 def get_relevant_schema_info(query):
     try:
-        schema_info = get_schema_as_text(query=query, k=1)
+        schema_info = schema_vectorizer.get_relevant_schema(query=query, k=1)
         return schema_info
     except Exception as e:
         print(f"Error getting schema info: {e}")
