@@ -35,4 +35,4 @@ EXPOSE 8000
 ENV PYTHONPATH=/app/src:${PYTHONPATH}
 
 # Run Uvicorn with the new package structure
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src/backend"]

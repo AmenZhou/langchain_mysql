@@ -21,6 +21,10 @@ from .schema_vectorizer import SchemaVectorizer  # Import schema vectorization
 # ✅ Load Environment Variables
 load_dotenv()
 
+# Initialize logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 # Initialize schema vectorizer
 schema_vectorizer = SchemaVectorizer()
 
@@ -39,28 +43,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     # Add any cleanup code here if needed
 
-# ✅ FastAPI App
-class LangChainMySQL(FastAPI):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, lifespan=lifespan, **kwargs)
-        
-        # Configure logging
+class LangChainMySQL:
+    def __init__(self, db_engine, schema_vectorizer):
+        self.db_engine = db_engine
+        self.schema_vectorizer = schema_vectorizer
         self.logger = logging.getLogger(__name__)
-        logging.basicConfig(level=logging.INFO)
-        
-        # Add CORS middleware
-        self.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        
-        # Add routes
-        self.add_api_route("/query", self.query_database, methods=["POST"])
-        self.add_api_route("/reset_memory", self.reset_memory, methods=["POST"])
-        self.add_api_route("/preload_schema", self.preload_schema, methods=["POST"])
     
     # ✅ Asynchronous Query Execution to Improve Speed
     async def run_query_with_retry(self, user_query, retries=5, use_schema=True):
@@ -138,40 +125,36 @@ class LangChainMySQL(FastAPI):
         self.logger.error("Failed after retries.")
         return None
 
-    # ✅ FastAPI Endpoint to Handle User Queries
-    async def query_database(self, request: QueryRequest):
+    # ✅ Query Handler
+    async def query_database(self, question: str):
         try:
-            self.logger.info(f"Received user query: {request.question}")
-            response = await self.run_query_with_retry(request.question, use_schema=True)
+            self.logger.info(f"Received user query: {question}")
+            response = await self.run_query_with_retry(question, use_schema=True)
             if not response:
                 self.logger.error("No result returned from LangChain.")
                 raise HTTPException(status_code=500, detail="No result returned from LangChain.")
             self.logger.info(f"Final response: {response}")
             return {"result": response}
         except HTTPException as e:
-            # Re-raise HTTPExceptions as they are already properly formatted
             raise e
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred in /query endpoint: {e}")
+            self.logger.error(f"An unexpected error occurred in query: {e}")
             self.logger.error(traceback.format_exc())
             if "rate_limit" in str(e).lower():
                 raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded. Please try again later.")
             raise HTTPException(status_code=500, detail="An unexpected error occurred. Check server logs for details.")
 
-    # ✅ Endpoint to Clear Chat Memory
+    # ✅ Memory Management
     async def reset_memory(self):
         memory.clear()
         return {"message": "Chat memory cleared successfully!"}
 
-    # ✅ Endpoint to Preload Schema to Vector Database
+    # ✅ Schema Management
     async def preload_schema(self):
         try:
-            await asyncio.to_thread(lambda: schema_vectorizer.preload_schema_to_vectordb())
+            await asyncio.to_thread(lambda: self.schema_vectorizer.preload_schema_to_vectordb())
             return {"message": "Schema preloaded to vector database successfully!"}
         except Exception as e:
             self.logger.error(f"Error preloading schema: {e}")
             self.logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"Error preloading schema: {e}")
-
-# Create the application instance
-app = LangChainMySQL()

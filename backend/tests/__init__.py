@@ -1,5 +1,5 @@
 """
-Test package for the langchain MySQL application.
+Test package for the backend application.
 """ 
 
 # This file makes the tests directory a Python package 
