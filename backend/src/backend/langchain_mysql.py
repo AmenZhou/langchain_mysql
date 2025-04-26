@@ -73,7 +73,7 @@ class LangChainMySQL:
                 
                 self.logger.info(f"Raw response from db_chain: {response_dict}")
                 response = response_dict.get("result", "")
-                response = await sanitize_sql_response(response, chat_model)
+                response = await sanitize_sql_response(response)
                 memory.save_context({"query": user_query}, {"result": response})
                 return response
             except OpenAIError as e:
