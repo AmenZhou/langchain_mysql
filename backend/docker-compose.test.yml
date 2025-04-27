@@ -23,7 +23,7 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://test_user:testpassword@mysql:3306/test_db
       OPENAI_API_KEY: test_key
-      PYTHONPATH: /app:/app/src
+      PYTHONPATH: /app:/app/src:/app/backend/src
     volumes:
       - .:/app
     depends_on:

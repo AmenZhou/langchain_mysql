@@ -67,8 +67,15 @@ class SchemaExtractor:
                     logger.info(f"Processing table: {table}")
                     try:
                         columns = inspector.get_columns(table)
+                        column_info = []
+                        for column in columns:
+                            column_info.append({
+                                "name": column["name"],
+                                "type": str(column["type"]),
+                                "description": f"Column {column['name']} of type {str(column['type'])}"
+                            })
                         schema_info[table] = {
-                            'columns': [col['name'] for col in columns],
+                            'columns': column_info,
                             'description': f"Table containing {', '.join(col['name'] for col in columns)}"
                         }
                         logger.info(f"Successfully processed table {table} with {len(columns)} columns")

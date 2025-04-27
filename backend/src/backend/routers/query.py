@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 from typing import Optional, Dict, Any
 from ..langchain_mysql import LangChainMySQL
@@ -6,6 +7,7 @@ from ..security import limiter
 import logging
 import json
 import sys
+import traceback
 
 # Configure logging to stdout
 logger = logging.getLogger(__name__)
@@ -78,16 +80,38 @@ async def process_query(request: Request, query_request: QueryRequest, langchain
         logger.error(f"HTTP Exception: {str(e)}")
         logger.error(f"HTTP Exception details: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=error_details)
+    except AttributeError as e:
+        error_details = {
+            "error": "Attribute error",
+            "details": {
+                "message": str(e),
+                "type": "AttributeError",
+                "traceback": traceback.format_exc(),
+                "object_type": type(e.__traceback__.tb_frame.f_locals.get('self', None)).__name__ if e.__traceback__ else "Unknown",
+                "missing_attribute": str(e).split("'")[1] if "'" in str(e) else str(e)
+            }
+        }
+        logger.error(f"Attribute error occurred: {str(e)}")
+        logger.error(f"Object type: {error_details['details']['object_type']}")
+        logger.error(f"Missing attribute: {error_details['details']['missing_attribute']}")
+        logger.error(f"Traceback:\n{error_details['details']['traceback']}")
+        raise HTTPException(status_code=422, detail=error_details)
     except Exception as e:
         error_details = {
             "error": "Unexpected error",
             "details": {
                 "message": str(e),
                 "type": type(e).__name__,
-                "args": e.args
+                "traceback": traceback.format_exc(),
+                "args": e.args,
+                "object_info": {
+                    "dict": e.__dict__ if hasattr(e, '__dict__') else "No __dict__ attribute",
+                    "dir": dir(e)
+                }
             }
         }
         logger.error(f"Unexpected error: {str(e)}")
         logger.error(f"Error type: {type(e)}")
-        logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
+        logger.error(f"Traceback:\n{error_details['details']['traceback']}")
+        logger.error(f"Object info: {error_details['details']['object_info']}")
         raise HTTPException(status_code=500, detail=error_details) 

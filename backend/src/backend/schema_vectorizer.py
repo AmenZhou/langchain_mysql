@@ -102,60 +102,30 @@ class SchemaVectorizer:
             logger.error(f"Unexpected error during schema extraction: {str(e)}")
             raise
 
-    def create_schema_documents(self, schema_info: Dict[str, Any]) -> List[Document]:
-        """Create Document objects from schema information.
-
-        Args:
-            schema_info (Dict[str, Any]): Dictionary containing table schema information
-
-        Returns:
-            List[Document]: List of Document objects representing schema information
-
-        Raises:
-            ValueError: If schema_info is invalid
-            Exception: For other document creation errors
-        """
-        try:
-            if not schema_info:
-                raise ValueError("Schema information cannot be empty")
-
-            documents = []
-            for table_name, table_info in schema_info.items():
-                # Create a descriptive document content
-                columns = table_info.get('columns', [])
-                column_descriptions = []
-                
-                for col in columns:
-                    col_name = col.get('name', '')
-                    col_type = col.get('type', '')
-                    col_desc = col.get('description', '')
-                    column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
-                
-                # Create a comprehensive description of the table
-                description = f"Table {table_name} contains the following columns:\n"
-                description += "\n".join(column_descriptions)
-                
-                # Create metadata with full schema information
-                metadata = {
-                    "table_name": table_name,
-                    "columns": columns,
-                    "description": description
+    def create_schema_documents(self, schema_info: Dict[str, Dict]) -> List[Document]:
+        """Create documents from schema information."""
+        documents = []
+        for table_name, table_info in schema_info.items():
+            columns = table_info['columns']
+            description = table_info['description']
+            
+            # Create a detailed description of the table
+            column_descriptions = []
+            for col in columns:
+                col_desc = f"{col['name']} ({col['type']}) - {col['description']}"
+                column_descriptions.append(col_desc)
+            
+            content = f"Table {table_name} contains:\n" + "\n".join(column_descriptions)
+            
+            documents.append(Document(
+                page_content=content,
+                metadata={
+                    'table_name': table_name,
+                    'columns': [col['name'] for col in columns],
+                    'description': description
                 }
-                
-                # Create the document with descriptive content
-                doc = Document(
-                    page_content=description,
-                    metadata=metadata
-                )
-                documents.append(doc)
-
-            logger.info(f"Created {len(documents)} schema documents")
-            return documents
-        except Exception as e:
-            logger.error(f"Error creating schema documents: {str(e)}")
-            logger.error(f"Error type: {type(e)}")
-            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
-            raise
+            ))
+        return documents
 
     def create_prompt_documents(self) -> List[Document]:
         """Create Document objects for prompts to be embedded."""
@@ -280,7 +250,7 @@ class SchemaVectorizer:
             logger.info(f"Processing query: {query}")
             
             # Get relevant documents from vector store
-            results = await self.vector_store_manager.similarity_search(query, k=5)
+            results = await self.vector_store_manager.query_schema(query, k=5)
             
             if not results:
                 logger.warning(f"No relevant schema found for query: {query}")
