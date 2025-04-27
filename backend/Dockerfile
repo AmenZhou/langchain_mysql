@@ -5,11 +5,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     zsh \
     build-essential \
-    default-libmysqlclient-dev \
-    default-mysql-client \
     curl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    libblas-dev \
+    liblapack-dev \
+    gfortran \
+    pkg-config \
+    python3-dev \
+    default-libmysqlclient-dev
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -17,7 +19,7 @@ ENV PATH="/root/.cargo/bin:$PATH"
 COPY requirements.txt requirements-test.txt ./
 
 # Install Python dependencies
-RUN pip install --upgrade pip setuptools wheel
+RUN pip install --upgrade pip setuptools wheel numpy
 RUN pip install -r requirements.txt -r requirements-test.txt
 
 # Install Oh My Zsh (optional)

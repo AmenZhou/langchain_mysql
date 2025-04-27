@@ -11,15 +11,16 @@ import asyncio
 from .langchain_config import backoff_with_jitter
 import traceback
 import logging
-from openai import OpenAIError
+from openai import OpenAIError, RateLimitError, APIError
 from backend.exceptions import DatabaseError
 from backend.langchain_mysql import LangChainMySQL
+from fastapi.middleware.cors import CORSMiddleware
+from .database import get_db_engine, get_langchain_mysql
+from .models import QueryRequest, QueryResponse
 
 # Configure logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-app = FastAPI()
 
 class QueryRequest(BaseModel):
     query: str
@@ -52,83 +53,80 @@ async def get_langchain_mysql():
             )
     return langchain_mysql
 
-@app.post("/query")
-async def query(request: QueryRequest):
-    """Process a natural language query and return SQL results."""
-    try:
-        if not request.query or not request.query.strip():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Query cannot be empty"
-            )
-        
-        langchain_mysql = await get_langchain_mysql()
-        result = await langchain_mysql.process_query(request.query)
-        return result
-        
-    except HTTPException:
-        raise
-        
-    except ProgrammingError as e:
-        error_msg = str(e).lower()
-        if "no such table" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Table does not exist"
-            )
-        elif "syntax error" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid SQL syntax"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Database error: {str(e)}"
-            )
-            
-    except OperationalError as e:
-        if "permission denied" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied"
-            )
-        else:
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    app = FastAPI(
+        title="LangChain MySQL API",
+        description="API for interacting with MySQL using LangChain",
+        version="1.0.0"
+    )
+
+    # Configure CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    return app
+
+def register_routers(app: FastAPI) -> None:
+    """Register all routers with the application."""
+    
+    @app.get("/health")
+    async def health_check() -> Dict[str, str]:
+        """Health check endpoint."""
+        try:
+            engine = get_db_engine()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return {"status": "ok"}
+        except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Database error: {str(e)}"
+                detail=f"Health check failed: {str(e)}"
             )
-            
-    except OpenAIError as e:
-        if getattr(e, 'status_code', None) == 429:
+
+    @app.post("/query", response_model=QueryResponse)
+    async def process_query(request: QueryRequest):
+        """Process a natural language query."""
+        try:
+            langchain_mysql = await get_langchain_mysql()
+            result = await langchain_mysql.process_query(request.query)
+            return QueryResponse(result=result)
+        except ProgrammingError as e:
+            logger.error(f"SQL Programming Error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid SQL query: {str(e)}"
+            )
+        except OperationalError as e:
+            logger.error(f"SQL Operational Error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database operation failed: {str(e)}"
+            )
+        except RateLimitError as e:
+            logger.error(f"OpenAI Rate Limit Error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="OpenAI rate limit exceeded"
+                detail="OpenAI API rate limit exceeded. Please try again later."
             )
-        else:
+        except APIError as e:
+            logger.error(f"OpenAI API Error: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"OpenAI API error: {str(e)}"
             )
-        
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
-        )
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"An unexpected error occurred: {str(e)}"
+            )
 
-@app.get("/health")
-async def health_check():
-    """Check the health of the application."""
-    try:
-        engine = get_db_engine()
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return {"status": "healthy"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Health check failed: {str(e)}"
-        ) 
+# Create the FastAPI application instance
+app = create_app()
+register_routers(app) 

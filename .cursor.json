@@ -24,5 +24,21 @@
                 "panel": "dedicated"
             }
         }
+    },
+    "search": {
+        "testFilePatterns": [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**/*.py"
+        ],
+        "testDirectories": [
+            "backend/tests",
+            "backend/src/backend/tests"
+        ]
+    },
+    "testExplorer": {
+        "enabled": true,
+        "showTestStatus": true,
+        "groupBy": "file"
     }
 } 

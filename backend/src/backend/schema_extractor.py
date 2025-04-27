@@ -22,9 +22,11 @@ class SchemaExtractor:
     async def extract_table_schema(self, table_name: Optional[str] = None) -> Dict[str, Any]:
         """Extract schema information for a specific table or all tables."""
         try:
+            logger.info("Starting schema extraction")
             inspector = inspect(self.engine)
             
             if table_name:
+                logger.info(f"Extracting schema for specific table: {table_name}")
                 # Get columns for specific table
                 columns = inspector.get_columns(table_name)
                 column_info = []
@@ -56,17 +58,36 @@ class SchemaExtractor:
                 }
             else:
                 # Get schema for all tables
+                logger.info("Extracting schema for all tables")
+                tables = self.get_all_tables()
+                logger.info(f"Found {len(tables)} tables: {tables}")
+                
                 schema_info = {}
-                for table in self.get_all_tables():
-                    columns = inspector.get_columns(table)
-                    schema_info[table] = {
-                        'columns': [col['name'] for col in columns],
-                        'description': f"Table containing {', '.join(col['name'] for col in columns)}"
-                    }
+                for table in tables:
+                    logger.info(f"Processing table: {table}")
+                    try:
+                        columns = inspector.get_columns(table)
+                        schema_info[table] = {
+                            'columns': [col['name'] for col in columns],
+                            'description': f"Table containing {', '.join(col['name'] for col in columns)}"
+                        }
+                        logger.info(f"Successfully processed table {table} with {len(columns)} columns")
+                    except Exception as table_error:
+                        logger.error(f"Error processing table {table}: {str(table_error)}")
+                        continue
+                
+                logger.info(f"Successfully extracted schema for {len(schema_info)} tables")
                 return schema_info
             
         except SQLAlchemyError as e:
-            logger.error(f"Error extracting schema for table {table_name}: {e}")
+            logger.error(f"SQLAlchemy error extracting schema for table {table_name}: {e}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
+            return {"table_name": table_name, "error": str(e)} if table_name else {}
+        except Exception as e:
+            logger.error(f"Unexpected error extracting schema for table {table_name}: {e}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             return {"table_name": table_name, "error": str(e)} if table_name else {}
 
     def create_schema_documents(self, schema_info: Dict) -> List[Document]:
@@ -78,19 +99,26 @@ class SchemaExtractor:
         documents = []
         
         for table_name, table_info in schema_info.items():
-            # Create an extremely minimal description
-            description = f"{table_name}:"
+            # Create a more descriptive document content
+            description = f"Table {table_name} contains "
             
-            # Add only column names, skip types and other details
+            # Add column information with types
             columns = table_info.get('columns', [])
+            column_descriptions = []
+            for col in columns:
+                col_name = col.get('name', '')
+                col_type = col.get('type', '')
+                col_desc = col.get('description', '')
+                column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
             
-            # Join columns with spaces to save even more space
-            description += " ".join(columns)
+            # Add column descriptions to the document content
+            description += " and ".join(column_descriptions)
             
-            # Create metadata with minimal schema information
+            # Create metadata with full schema information
             metadata = {
                 "table_name": table_name,
-                "columns": columns
+                "columns": columns,
+                "description": description
             }
             
             # Create the document

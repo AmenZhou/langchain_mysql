@@ -5,7 +5,7 @@ import asyncio
 import sys
 
 from langchain.schema import Document
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain_community.embeddings import OpenAIEmbeddings
 from sqlalchemy.exc import SQLAlchemyError
 
 from .utils.error_handling import handle_openai_error
@@ -121,9 +121,31 @@ class SchemaVectorizer:
 
             documents = []
             for table_name, table_info in schema_info.items():
+                # Create a descriptive document content
+                columns = table_info.get('columns', [])
+                column_descriptions = []
+                
+                for col in columns:
+                    col_name = col.get('name', '')
+                    col_type = col.get('type', '')
+                    col_desc = col.get('description', '')
+                    column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
+                
+                # Create a comprehensive description of the table
+                description = f"Table {table_name} contains the following columns:\n"
+                description += "\n".join(column_descriptions)
+                
+                # Create metadata with full schema information
+                metadata = {
+                    "table_name": table_name,
+                    "columns": columns,
+                    "description": description
+                }
+                
+                # Create the document with descriptive content
                 doc = Document(
-                    page_content="User schema",  # Simplified content as expected by tests
-                    metadata={"table": table_name}  # Changed from table_name to table
+                    page_content=description,
+                    metadata=metadata
                 )
                 documents.append(doc)
 
@@ -131,6 +153,8 @@ class SchemaVectorizer:
             return documents
         except Exception as e:
             logger.error(f"Error creating schema documents: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             raise
 
     def create_prompt_documents(self) -> List[Document]:
@@ -149,15 +173,40 @@ class SchemaVectorizer:
             Exception: For other vector store initialization errors
         """
         try:
-            documents = self.create_schema_documents(schema_info)
+            logger.info("Starting vector store initialization")
             
+            if not schema_info:
+                logger.error("No schema information provided for initialization")
+                raise ValueError("Schema information cannot be empty")
+                
+            logger.info(f"Schema info contains {len(schema_info)} tables: {list(schema_info.keys())}")
+            logger.info(f"Creating documents from schema info")
+            documents = self.create_schema_documents(schema_info)
+            logger.info(f"Created {len(documents)} documents")
+            
+            if not documents:
+                logger.error("No documents created from schema info")
+                raise ValueError("Failed to create documents from schema information")
+                
+            logger.info("Adding documents to vector store")
             await self.vector_store_manager.add_documents(documents)
             logger.info("Successfully initialized vector store with schema information")
+            
+            # Verify the vector store was initialized
+            if not self.vector_store_manager.schema_vectordb:
+                logger.error("Vector store was not properly initialized")
+                raise ValueError("Vector store was not properly initialized")
+                
+            logger.info("Vector store initialization complete")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error during vector store initialization: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error initializing vector store: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             raise
             
     async def preload_schema_to_vectordb(self, schema_info: Dict[str, Any]) -> None:
@@ -170,19 +219,30 @@ class SchemaVectorizer:
             Exception: If an error occurs during preloading
         """
         try:
+            if not schema_info:
+                raise ValueError("No schema information provided for preloading")
+                
+            logger.info("Starting schema preloading")
+            
             # Create documents from schema info
             schema_docs = self.create_schema_documents(schema_info)
-            
+            if not schema_docs:
+                raise ValueError("Failed to create schema documents")
+                
             # Create prompt documents
             prompt_docs = self.create_prompt_documents()
+            if not prompt_docs:
+                raise ValueError("Failed to create prompt documents")
             
-            # Initialize vector stores
-            self.vector_store_manager.initialize_schema_store(schema_docs)
-            self.vector_store_manager.initialize_prompt_store(prompt_docs)
+            # Initialize vector stores asynchronously
+            await self.vector_store_manager.initialize_schema_store(schema_docs)
+            await self.vector_store_manager.initialize_prompt_store(prompt_docs)
             
             logger.info("Successfully preloaded schema to vector database")
         except Exception as e:
             logger.error(f"Error preloading schema to vector database: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             raise
 
     async def get_relevant_prompt(self, query: str, prompt_type: str) -> str:
@@ -211,24 +271,39 @@ class SchemaVectorizer:
             raise ValueError(f"No prompt found for type: {prompt_type}")
 
     async def get_relevant_schema(self, query: str) -> str:
-        """Get the most relevant schema for a given query.
-
-        Args:
-            query (str): The query to find relevant schema for
-
-        Returns:
-            str: The most relevant schema text
-        """
+        """Get the most relevant schema for a given query."""
+        if not query:
+            logger.warning("Empty query provided")
+            return ""
+        
         try:
-            results = await handle_openai_error(self.vector_store_manager.query_schema(query))
+            logger.info(f"Processing query: {query}")
+            
+            # Get relevant documents from vector store
+            results = await self.vector_store_manager.similarity_search(query, k=5)
             
             if not results:
-                logger.warning("No relevant schema found for query")
+                logger.warning(f"No relevant schema found for query: {query}")
                 return ""
-                
-            return results[0].page_content
+            
+            # Log the top matches
+            logger.info(f"Found {len(results)} relevant schema matches:")
+            for i, result in enumerate(results, 1):
+                logger.info(f"Match {i}: {result.metadata.get('table_name')} - Score: {result.metadata.get('score', 'N/A')}")
+            
+            # Combine the most relevant schemas
+            relevant_schemas = []
+            for result in results:
+                table_name = result.metadata.get('table_name')
+                description = result.metadata.get('description', '')
+                relevant_schemas.append(f"Table: {table_name}\nDescription: {description}")
+            
+            return "\n\n".join(relevant_schemas)
+            
         except Exception as e:
-            logger.error(f"Error retrieving relevant schema: {str(e)}")
+            logger.error(f"Error getting relevant schema: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
             return ""
 
     async def preload_schema_error_handling(self) -> None:
