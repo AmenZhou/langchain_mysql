@@ -1,9 +1,9 @@
 # ✅ Prompt for the Refinement AI
 PROMPT_REFINE = """You are an expert prompt engineer. Your task is to take a user's natural language query and refine it to reliably generate a raw SQL query using a language model connected to a SQL database via Langchain. The goal is to get ONLY the SQL query, without any extra explanations, execution results, or natural language.
 
-{database_schema_info}
+{schema}
 
-Here is the user's query: '{user_query}'
+Here is the user's query: '{query}'
 
 Please rewrite the user's query to be very explicit and direct in asking for the raw SQL query. Ensure the refined query:
 - Clearly specifies the table(s) involved.
@@ -16,9 +16,9 @@ Please rewrite the user's query to be very explicit and direct in asking for the
 # ✅ Prompt for Table Name Queries
 PROMPT_TABLE_QUERY = """You are an expert SQL assistant. Your task is to help users find tables in the database based on their descriptions.
 
-{database_schema_info}
+{schema}
 
-Here is the user's query about table names: '{user_query}'
+Here is the user's query about table names: '{query}'
 
 Generate a SQL query that finds tables matching the description. The query must:
 1. Use the information_schema.tables table
@@ -44,17 +44,16 @@ IMPORTANT:
 """
 
 # ✅ Secondary Prompt to Review SQL Response and Remove PHI/PII (Allow IDs)
-def get_sanitize_prompt(response: str) -> str:
-    return f"""
-    You are a data privacy filter. Your job is to review the SQL response below and redact any Protected Health Information (PHI) or Personally Identifiable Information (PII), including names, addresses, medical records, and other sensitive details.
+def get_sanitize_prompt(sql_result: str) -> str:
+    """Get the prompt for sanitizing SQL responses."""
+    return f"""Please clean up and sanitize the following SQL result to ensure no sensitive data is exposed:
 
-    However, you should **allow numeric identifiers** related to the context of the query to remain unredacted. Specifically:
-    - **Allow numeric values that appear to be Member IDs.**
-    - **Allow numeric values that appear to be Consultation IDs.**
-    - Generally, allow any purely numeric IDs that are likely foreign keys or identifiers within the database.
+{sql_result}
 
-    SQL Response:
-    {response}
-
-    Please return the sanitized response with all PHI/PII redacted, but ensure that relevant numeric IDs (like Member IDs and Consultation IDs) are not redacted.
-    """
+Rules for sanitization:
+1. Replace sensitive column values with [PRIVATE]
+2. Keep table names and column names visible
+3. Keep SQL keywords and syntax visible
+4. Keep non-sensitive values (like IDs) visible
+5. Return only the sanitized SQL, no explanations
+"""

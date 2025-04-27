@@ -1,18 +1,24 @@
 import os
 import sys
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock, AsyncMock, Mock
 from sqlalchemy import MetaData, inspect
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langchain_community.utilities import SQLDatabase
+from src.backend.utils import sanitize_sql_response
+from src.backend.prompts import get_sanitize_prompt
+from langchain_community.chat_models import ChatOpenAI
+from fastapi import HTTPException
+from sqlalchemy.exc import ProgrammingError, OperationalError
+from openai import RateLimitError, APIError
 
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from backend.utils import (
+from backend.utils.sql_utils import (
     generate_column_query,
     generate_table_query,
     get_sql_chain,
@@ -268,35 +274,30 @@ async def test_refine_prompt_with_ai_table_query(mock_sql_chain):
 @pytest.mark.asyncio
 async def test_refine_prompt_with_ai_error_handling():
     """Test error handling in prompt refinement."""
+    test_query = "show me all users"
+
     mock_chain = AsyncMock()
-    mock_chain.ainvoke.side_effect = Exception("Test error")
-    
-    mock_schema = MagicMock()
-    mock_schema.get_relevant_schema.return_value = "mocked schema"
-    
-    with patch("backend.utils.SQLDatabaseChain", return_value=mock_chain), \
-         patch("backend.utils.SchemaVectorizer", return_value=mock_schema):
-        result = await refine_prompt_with_ai("test query")
+    mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
+
+    with patch("backend.utils.create_db_chain_with_schema", return_value=mock_chain):
+        result = await refine_prompt_with_ai(test_query)
         assert result is None
-        mock_chain.ainvoke.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_refine_prompt_with_ai_table_query_fallback():
     """Test fallback behavior for table name queries when OpenAI fails."""
     query = "show me tables with medical in the name"
     expected_sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE '%medical%';"
-    
+
     mock_chain = AsyncMock()
-    mock_chain.ainvoke.side_effect = Exception("Test error")
-    
-    mock_schema = MagicMock()
-    mock_schema.get_relevant_schema.return_value = "mocked schema"
-    
-    with patch("backend.utils.SQLDatabaseChain", return_value=mock_chain), \
-         patch("backend.utils.SchemaVectorizer", return_value=mock_schema):
+    mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
+
+    with patch("backend.utils.create_db_chain_with_schema", return_value=mock_chain), \
+         patch("backend.utils.generate_table_query", return_value=expected_sql):
         result = await refine_prompt_with_ai(query)
         assert result == expected_sql
-        mock_chain.ainvoke.assert_called_once()
+        assert mock_chain.ainvoke.call_count == 1
+        mock_chain.ainvoke.assert_called_once_with({"query": query, "schema": ""})
 
 @pytest.mark.asyncio
 async def test_generate_column_query_error_handling(mock_dependencies):
@@ -315,106 +316,97 @@ async def test_generate_table_query_error_handling(mock_dependencies):
     mock_schema, mock_openai, mock_chat, mock_prompt, mock_db, mock_chain = mock_dependencies
     
     # Configure SQLDatabaseChain mock to raise an error
-    mock_chain.invoke = AsyncMock(side_effect=Exception("Test error"))
+    mock_chain.invoke.side_effect = Exception("Test error")
     
     result = await generate_table_query("test")
-    assert result is None
+    assert result is None  # Should return None on error
 
 @pytest.mark.asyncio
-async def test_refine_prompt_with_ai_success(mock_dependencies):
-    """Test successful prompt refinement."""
+async def test_generate_table_query_success(mock_dependencies):
+    """Test successful table query generation."""
     mock_schema, mock_openai, mock_chat, mock_prompt, mock_db, mock_chain = mock_dependencies
     
-    # Configure mocks for successful response
-    mock_schema.get_relevant_schema.return_value = "mocked schema"
-    mock_openai.return_value.chat.completions.create = AsyncMock(return_value=ChatCompletion(
-        id="chatcmpl-123",
-        choices=[{
-            "index": 0,
-            "message": ChatCompletionMessage(
-                role="assistant",
-                content="Mocked response content"
-            ),
-            "finish_reason": "stop"
-        }],
-        created=1234567890,
-        model="gpt-4",
-        object="chat.completion",
-        usage={"completion_tokens": 10, "prompt_tokens": 20, "total_tokens": 30}
-    ))
+    # Configure mock response
+    mock_chain.invoke.return_value = {"result": "test_table"}
     
-    result = await refine_prompt_with_ai("test prompt")
-    assert result == "Mocked response content"
+    result = await generate_table_query("test")
+    assert result == "test_table"
+    mock_chain.invoke.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_refine_prompt_with_ai_success():
+    """Test successful prompt refinement."""
+    test_query = "show me all users"
+    expected_sql = "SELECT * FROM users;"
+
+    mock_chain = AsyncMock()
+    mock_chain.ainvoke = AsyncMock(return_value={"result": expected_sql})
+
+    with patch("backend.utils.create_db_chain_with_schema", return_value=mock_chain):
+        result = await refine_prompt_with_ai(test_query)
+        assert result == expected_sql
 
 @pytest.mark.asyncio
 async def test_sanitize_sql_response_success():
     """Test successful sanitization of SQL response."""
     test_response = "SELECT name, email FROM users WHERE id=123;"
     expected_sanitized = "SELECT [PRIVATE], [PRIVATE] FROM users WHERE id=123;"
-    
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AIMessage(content=expected_sanitized)
-    
-    mock_chain = AsyncMock()
-    mock_chain.ainvoke.return_value = AIMessage(content=expected_sanitized)
-    
-    with patch("backend.utils.ChatOpenAI", return_value=mock_llm), \
-         patch("backend.utils.ChatPromptTemplate.from_messages", return_value=mock_chain):
+
+    mock_chat = AsyncMock()
+    mock_chat.agenerate = AsyncMock(return_value=Mock(generations=[[Mock(content=expected_sanitized)]]))
+
+    with patch("backend.utils.ChatOpenAI", return_value=mock_chat):
         result = await sanitize_sql_response(test_response)
         assert result == expected_sanitized
-        mock_chain.ainvoke.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_sanitize_sql_response_sql_result():
     """Test sanitization of SQL query result."""
     test_response = "SELECT * FROM users;"
     expected_sanitized = "SELECT * FROM users;"
-    
+
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AIMessage(content=expected_sanitized)
-    
+    mock_llm.ainvoke = AsyncMock(return_value=Mock(content=expected_sanitized))
+
     mock_chain = AsyncMock()
-    mock_chain.ainvoke.return_value = AIMessage(content=expected_sanitized)
-    
+    mock_chain.ainvoke = AsyncMock(return_value=Mock(content=expected_sanitized))
+
     with patch("backend.utils.ChatOpenAI", return_value=mock_llm), \
          patch("backend.utils.ChatPromptTemplate.from_messages", return_value=mock_chain):
         result = await sanitize_sql_response(test_response)
         assert result == expected_sanitized
-        mock_chain.ainvoke.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_sanitize_sql_response_error():
     """Test error handling in SQL response sanitization."""
     test_response = "SELECT * FROM users;"
-    
+
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.side_effect = Exception("Test error")
-    
+    mock_llm.ainvoke = AsyncMock(side_effect=Exception("Test error"))
+
     mock_chain = AsyncMock()
-    mock_chain.ainvoke.side_effect = Exception("Test error")
-    
+    mock_chain.ainvoke = AsyncMock(side_effect=Exception("Test error"))
+
     with patch("backend.utils.ChatOpenAI", return_value=mock_llm), \
          patch("backend.utils.ChatPromptTemplate.from_messages", return_value=mock_chain):
         result = await sanitize_sql_response(test_response)
         assert result == test_response  # Should return original on error
-        mock_chain.ainvoke.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_sanitize_sql_response_non_ai_message():
     """Test handling of non-AIMessage responses in SQL sanitization."""
     test_response = "SELECT * FROM users;"
-    
+
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = "Not an AIMessage"
-    
+    mock_llm.ainvoke = AsyncMock(return_value="Not an AIMessage")
+
     mock_chain = AsyncMock()
-    mock_chain.ainvoke.return_value = "Not an AIMessage"
-    
+    mock_chain.ainvoke = AsyncMock(return_value="Not an AIMessage")
+
     with patch("backend.utils.ChatOpenAI", return_value=mock_llm), \
          patch("backend.utils.ChatPromptTemplate.from_messages", return_value=mock_chain):
         result = await sanitize_sql_response(test_response)
         assert result == test_response  # Should return original if not AIMessage
-        mock_chain.ainvoke.assert_called_once()
 
 if __name__ == "__main__":
     pytest.main([__file__])

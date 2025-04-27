@@ -14,11 +14,11 @@ RUN apt-get update && apt-get install -y \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 
-COPY requirements.txt .
+COPY requirements.txt requirements-test.txt ./
 
 # Install Python dependencies
 RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt -r requirements-test.txt
 
 # Install Oh My Zsh (optional)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" || true
@@ -31,8 +31,8 @@ RUN pip install -e .
 
 EXPOSE 8000
 
-# Set PYTHONPATH to include the package directory
-ENV PYTHONPATH=/app/src:${PYTHONPATH}
+# Set environment variables
+ENV PYTHONPATH=/app/src
 
 # Run Uvicorn with the new package structure
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src/backend"]

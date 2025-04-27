@@ -1,27 +1,62 @@
+import os
+from typing import Dict, List, Optional, Any
+import logging
+import asyncio
+import sys
+
+from langchain.schema import Document
+from langchain.embeddings.openai import OpenAIEmbeddings
+from sqlalchemy.exc import SQLAlchemyError
+
+from .utils.error_handling import handle_openai_error
+from .database import get_db_engine
+from .schema_extractor import SchemaExtractor
+from .vector_store import VectorStoreManager
+
 from sqlalchemy import inspect, MetaData
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_chroma import Chroma
-from langchain.schema import Document
-import json
-import os
-from sqlalchemy.exc import SQLAlchemyError
-import logging
-from typing import List, Dict, Any, Optional
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
-
-from .database import engine, db
+from langchain_community.vectorstores import FAISS
+from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 class SchemaVectorizer:
-    def __init__(self, persist_directory: str = "./chroma_db"):
-        self.persist_directory = persist_directory
-        self.embeddings = self._get_embeddings()
-        self.vectordb = None
-        
+    def __init__(self, db_url: str, openai_api_key: Optional[str] = None):
+        """Initialize SchemaVectorizer with database URL and OpenAI API key.
+
+        Args:
+            db_url (str): Database connection URL
+            openai_api_key (Optional[str]): OpenAI API key. If not provided, will try to get from environment.
+
+        Raises:
+            ValueError: If OpenAI API key is not provided and not found in environment
+            SQLAlchemyError: If database connection fails
+            Exception: For other initialization errors
+        """
+        try:
+            self.api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+            if not self.api_key:
+                raise ValueError("OpenAI API key must be provided either directly or via OPENAI_API_KEY environment variable")
+
+            self.db_url = db_url
+            self.engine = get_db_engine(db_url)
+            self.schema_extractor = SchemaExtractor(self.engine)
+            self.embeddings = OpenAIEmbeddings(openai_api_key=self.api_key)
+            self.vector_store_manager = VectorStoreManager(self.embeddings)
+            
+            logger.info("SchemaVectorizer initialized successfully")
+        except SQLAlchemyError as e:
+            logger.error(f"Database connection error: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error initializing SchemaVectorizer: {str(e)}")
+            raise
+
     def _get_embeddings(self):
         """Initialize and return the OpenAI embeddings model."""
         return OpenAIEmbeddings()
@@ -35,170 +70,186 @@ class SchemaVectorizer:
     def get_all_tables(self) -> List[str]:
         """Get all table names from the database."""
         try:
-            inspector = inspect(engine)
+            inspector = inspect(self.engine)
             return inspector.get_table_names()
         except SQLAlchemyError as e:
             logger.error(f"Error getting table names: {e}")
             return []
 
-    def extract_table_schema(self, table_name: str) -> Dict[str, Any]:
-        """Extract schema information for a specific table."""
+    async def extract_table_schema(self) -> Dict[str, Any]:
+        """Extract schema information from the database.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing table schema information
+
+        Raises:
+            SQLAlchemyError: If database schema extraction fails
+            Exception: For other unexpected errors
+        """
         try:
-            inspector = inspect(engine)
-            
-            # Get columns
-            columns = inspector.get_columns(table_name)
-            column_info = []
-            for column in columns:
-                column_info.append({
-                    "name": column["name"],
-                    "type": str(column["type"]),
-                    "nullable": column.get("nullable", True),
-                    "default": str(column.get("default", "None")),
-                    "primary_key": column.get("primary_key", False)
-                })
-            
-            # Get primary key
-            pk = inspector.get_pk_constraint(table_name)
-            
-            # Get foreign keys
-            fks = inspector.get_foreign_keys(table_name)
-            
-            # Get indexes
-            indexes = inspector.get_indexes(table_name)
-            
-            # Combine all schema information
-            schema_info = {
-                "table_name": table_name,
-                "columns": column_info,
-                "primary_key": pk,
-                "foreign_keys": fks,
-                "indexes": indexes
-            }
-            
+            schema_info = await self.schema_extractor.extract_schema()
+            logger.info("Successfully extracted database schema")
             return schema_info
-        
         except SQLAlchemyError as e:
-            logger.error(f"Error extracting schema for table {table_name}: {e}")
-            return {"table_name": table_name, "error": str(e)}
+            logger.error(f"Error extracting database schema: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during schema extraction: {str(e)}")
+            raise
 
-    def create_schema_documents(self) -> List[Document]:
-        """Create Document objects for each table schema to be embedded."""
-        tables = self.get_all_tables()
-        if not tables:
-            logger.warning("No tables found in the database.")
-            return []
-        
-        documents = []
-        
-        for table_name in tables:
-            schema_info = self.extract_table_schema(table_name)
-            
-            # Create an extremely minimal description
-            description = f"{table_name}:"
-            
-            # Add only column names, skip types and other details
-            columns = [col.get('name') for col in schema_info.get("columns", [])]
-            
-            # Join columns with spaces to save even more space
-            description += " ".join(columns)
-            
-            # Create metadata with minimal schema information
-            metadata = {
-                "table_name": table_name,
-                "columns": [col.get("name") for col in schema_info.get("columns", [])]
-            }
-            
-            # Create the document
-            doc = Document(page_content=description, metadata=metadata)
-            documents.append(doc)
-        
-        return documents
+    def create_schema_documents(self, schema_info: Dict[str, Any]) -> List[Document]:
+        """Create Document objects from schema information.
 
-    def preload_schema_to_vectordb(self) -> None:
-        """Extract database schema, create embeddings, and store in vector database."""
+        Args:
+            schema_info (Dict[str, Any]): Dictionary containing table schema information
+
+        Returns:
+            List[Document]: List of Document objects representing schema information
+
+        Raises:
+            ValueError: If schema_info is invalid
+            Exception: For other document creation errors
+        """
         try:
-            # Create documents from schema
-            schema_documents = self.create_schema_documents()
-            
-            # Check if we have documents to embed
-            if not schema_documents:
-                logger.warning("No schema documents created. Vector database not updated.")
-                return
-            
-            try:
-                # Try to create and persist vector store
-                self.vectordb = Chroma.from_documents(
-                    documents=schema_documents,
-                    embedding=self.embeddings,
-                    persist_directory=self.persist_directory
+            if not schema_info:
+                raise ValueError("Schema information cannot be empty")
+
+            documents = []
+            for table_name, table_info in schema_info.items():
+                doc = Document(
+                    page_content=str(table_info),
+                    metadata={"table_name": table_name}
                 )
-                self.vectordb.persist()
-                logger.info(f"Successfully preloaded schema for {len(schema_documents)} tables to vector database")
-            except Exception as e:
-                logger.warning(f"Failed to create vector store: {e}. Will use fallback mechanism.")
-            
-            return schema_documents
-        
+                documents.append(doc)
+
+            logger.info(f"Created {len(documents)} schema documents")
+            return documents
         except Exception as e:
-            logger.error(f"Error preloading schema to vector database: {e}")
+            logger.error(f"Error creating schema documents: {str(e)}")
             raise
 
-    def query_schema_vectordb(self, query: str, k: int = 3) -> List[Document]:
-        """Query the vector database for schema information."""
+    def create_prompt_documents(self) -> List[Document]:
+        """Create Document objects for prompts to be embedded."""
+        return self.schema_extractor.create_prompt_documents()
+
+    async def initialize_vector_store(self) -> None:
+        """Initialize vector store with schema information.
+
+        Raises:
+            SQLAlchemyError: If database schema extraction fails
+            ValueError: If document creation fails
+            Exception: For other vector store initialization errors
+        """
         try:
-            # Load the vector database
-            vectordb = self._get_chroma_db()
+            schema_info = await self.extract_table_schema()
+            documents = self.create_schema_documents(schema_info)
             
-            # Perform similarity search
-            results = vectordb.similarity_search(query, k=k)
-            
-            return results
-        
+            await self.vector_store_manager.add_documents(documents)
+            logger.info("Successfully initialized vector store with schema information")
+        except (SQLAlchemyError, ValueError) as e:
+            logger.error(f"Error during vector store initialization: {str(e)}")
+            raise
         except Exception as e:
-            logger.error(f"Error querying schema vector database: {e}")
+            logger.error(f"Unexpected error initializing vector store: {str(e)}")
             raise
 
-    def get_relevant_schema(self, query: Optional[str] = None, k: int = 1) -> str:
-        """Get schema information as formatted text, optionally filtered by a query."""
+    async def get_relevant_prompt(self, query: str, prompt_type: Optional[str] = None) -> str:
+        """Retrieve the most relevant prompt from the vector database.
+
+        Args:
+            query (str): The query to find relevant prompts for
+            prompt_type (Optional[str]): Type of prompt to retrieve (e.g., 'refine', 'table', 'sanitize')
+
+        Returns:
+            str: The most relevant prompt text
+
+        Raises:
+            ValueError: If no prompt is found for the given type
+            Exception: For other unexpected errors
+        """
         try:
-            # Create schema documents directly
-            schema_documents = self.create_schema_documents()
-            if not schema_documents:
-                logger.warning("No schema documents created.")
+            results = await handle_openai_error(self.vector_store_manager.query_prompts(query, prompt_type))
+            
+            if not results:
+                # Fallback to default prompts if no match found
+                if prompt_type == "refine":
+                    return PROMPT_REFINE
+                elif prompt_type == "table":
+                    return PROMPT_TABLE_QUERY
+                elif prompt_type == "sanitize":
+                    return get_sanitize_prompt(query)
+                else:
+                    raise ValueError(f"No prompt found for type: {prompt_type}")
+                    
+            return results[0].page_content
+        except Exception as e:
+            logger.error(f"Error retrieving relevant prompt: {str(e)}")
+            # If any error occurs, fall back to default prompts
+            if prompt_type == "refine":
+                return PROMPT_REFINE
+            elif prompt_type == "table":
+                return PROMPT_TABLE_QUERY
+            elif prompt_type == "sanitize":
+                return get_sanitize_prompt(query)
+            else:
+                raise ValueError(f"No prompt found for type: {prompt_type}")
+
+    async def get_relevant_schema(self, query: Optional[str] = None, k: int = 1) -> str:
+        """Get schema information as formatted text, optionally filtered by a query.
+
+        Args:
+            query (Optional[str]): Query to filter schema information
+            k (int): Number of most relevant schema entries to return
+
+        Returns:
+            str: Formatted schema information text
+
+        Raises:
+            Exception: For unexpected errors during schema retrieval
+        """
+        try:
+            if not query:
                 return ""
 
-            # If no query, return all schema info
-            if not query:
-                schema_texts = []
-                for doc in schema_documents:
-                    schema_texts.append(doc.page_content)
-                return "\n".join(schema_texts)
-
-            # If query provided, try vector search first
+            # Try vector search first
             try:
-                results = self.query_schema_vectordb(query, k=k)
-                schema_texts = [doc.page_content for doc in results]
-                return "\n".join(schema_texts)
+                results = await handle_openai_error(self.vector_store_manager.query_schema(query, k=k))
+                if results:
+                    return results[0].page_content
             except Exception as e:
-                logger.warning(f"Vector search failed, falling back to full schema: {e}")
-                # Simple keyword matching as fallback
-                matched_docs = []
-                query_terms = query.lower().split()
-                for doc in schema_documents:
-                    content = doc.page_content.lower()
-                    if any(term in content for term in query_terms):
-                        matched_docs.append(doc)
-                if matched_docs:
-                    return "\n".join(doc.page_content for doc in matched_docs[:k])
-                # If no matches, return all schema info
-                return "\n".join(doc.page_content for doc in schema_documents)
-        
+                logger.warning(f"Vector search failed, falling back to full schema: {str(e)}")
+                
+            # Fallback to full schema if vector search fails
+            schema_info = await self.extract_table_schema()
+            if not schema_info:
+                return ""
+                
+            # Format schema info as text
+            schema_text = []
+            for table_name, info in schema_info.items():
+                schema_text.append(f"Table: {table_name}")
+                if 'columns' in info:
+                    schema_text.append("Columns: " + ", ".join(info['columns']))
+                if 'description' in info:
+                    schema_text.append(info['description'])
+                schema_text.append("")  # Add blank line between tables
+                
+            return "\n".join(schema_text)
+            
         except Exception as e:
-            logger.error(f"Error getting schema as text: {e}")
-            return f"Error retrieving schema information: {e}"
+            logger.error(f"Error getting relevant schema: {str(e)}")
+            return ""
 
 if __name__ == "__main__":
-    # When run directly, preload the schema
-    vectorizer = SchemaVectorizer()
-    vectorizer.preload_schema_to_vectordb() 
+    # When run directly, initialize the vector store
+    try:
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            raise ValueError("DATABASE_URL environment variable must be set")
+            
+        vectorizer = SchemaVectorizer(db_url=db_url)
+        asyncio.run(vectorizer.initialize_vector_store())
+        logger.info("Successfully initialized vector store")
+    except Exception as e:
+        logger.error(f"Failed to initialize vector store: {str(e)}")
+        sys.exit(1) 

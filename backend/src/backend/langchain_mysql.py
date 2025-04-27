@@ -1,19 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import time
 import asyncio
-from openai import OpenAIError
-from sqlalchemy import text
-from pymysql.err import ProgrammingError
 import logging
 import traceback
-import sqlalchemy.exc
+from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, OperationalError
+from typing import Optional, Dict, Any
+from fastapi import status
+from openai import RateLimitError, APIError
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 
-from .database import get_db_engine, get_db  # Import database functions
-from .langchain_config import chat_model, memory, db_chain, create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
+from .database import get_db_engine, get_db, DATABASE_URL  # Import database functions
+from .langchain_config import create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
 from .models import QueryRequest  # Import the Pydantic model
 from .utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
 from .schema_vectorizer import SchemaVectorizer  # Import schema vectorization
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Initialize schema vectorizer
-schema_vectorizer = SchemaVectorizer()
+schema_vectorizer = SchemaVectorizer(db_url=DATABASE_URL)
 
 # ✅ Lifespan Context Manager
 @asynccontextmanager
@@ -44,117 +45,111 @@ async def lifespan(app: FastAPI):
     # Add any cleanup code here if needed
 
 class LangChainMySQL:
-    def __init__(self, db_engine, schema_vectorizer):
-        self.db_engine = db_engine
-        self.schema_vectorizer = schema_vectorizer
-        self.logger = logging.getLogger(__name__)
-    
-    # ✅ Asynchronous Query Execution to Improve Speed
-    async def run_query_with_retry(self, user_query, retries=5, use_schema=True):
-        refined_query = await refine_prompt_with_ai(user_query)
+    def __init__(self):
+        self.engine = get_db_engine()
+        self.schema_vectorizer = SchemaVectorizer(db_url=DATABASE_URL)
 
-        if not refined_query:
-            self.logger.error("Failed to refine the prompt. Using the original query.")
-            refined_query = user_query
+    async def initialize(self):
+        """Initialize the LangChain MySQL instance."""
+        try:
+            await self.schema_vectorizer.initialize_vector_store()
+            logger.info("Successfully initialized LangChain MySQL")
+        except Exception as e:
+            logger.error(f"Error initializing LangChain MySQL: {e}")
+            raise
 
-        for attempt in range(retries):
+    async def run_query_with_retry(self, query: str, max_retries: int = 3) -> str:
+        """Run a query with retry logic."""
+        attempt = 0
+        while attempt < max_retries:
             try:
-                self.logger.info(f"Attempt {attempt + 1} to run refined query: {refined_query}")
-                
-                # Use schema-enhanced chain if requested
-                if use_schema:
-                    # Get a custom chain with schema information for this query
-                    custom_chain, prompt_with_schema = create_db_chain_with_schema(refined_query)
-                    self.logger.info(f"Using schema-enhanced prompt: {prompt_with_schema[:100]}...")
-                    response_dict = await asyncio.to_thread(lambda: custom_chain.invoke({"query": refined_query}))
-                else:
-                    # Use the original chain without schema enhancement
-                    response_dict = await asyncio.to_thread(lambda: db_chain.invoke({"query": refined_query}))
-                
-                self.logger.info(f"Raw response from db_chain: {response_dict}")
-                response = response_dict.get("result", "")
-                response = await sanitize_sql_response(response)
-                memory.save_context({"query": user_query}, {"result": response})
-                return response
-            except OpenAIError as e:
-                if "rate_limit_exceeded" in str(e) or "429" in str(e):
-                    # Use our custom backoff strategy
-                    wait_time = await asyncio.to_thread(backoff_with_jitter, attempt)
-                    self.logger.warning(f"Rate limit exceeded, retrying in {wait_time:.2f} seconds... (Attempt {attempt+1}/{retries})")
-                    await asyncio.sleep(wait_time)
-                    # If this was our last retry, raise the exception
-                    if attempt == retries - 1:
-                        self.logger.error(f"Failed after {retries} retries due to rate limits")
-                        raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded. Please try again later.")
-                else:
-                    self.logger.error(f"OpenAI Error during query: {e}")
-                    self.logger.error(traceback.format_exc())
-                    raise
-            except (ProgrammingError, sqlalchemy.exc.ProgrammingError) as e:
-                self.logger.error(f"Database Error during query: {e}")
-                self.logger.error(traceback.format_exc())
-                error_msg = str(e)
-                if "Table" in error_msg and "doesn't exist" in error_msg:
-                    table_name = error_msg.split("'")[1]
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Database Error: The table '{table_name}' does not exist in the database."
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Database Error: {error_msg}"
-                )
+                with self.engine.connect() as conn:
+                    result = conn.execute(text(query))
+                    return str(result.fetchall())
             except Exception as e:
-                self.logger.error(f"General error during query: {e}")
-                self.logger.error(traceback.format_exc())
-                if isinstance(e, ProgrammingError) and "You have an error in your SQL syntax" in str(e) and "near 'LIMIT 5' at line 4" in str(e):
-                    try:
-                        intermediate_steps = response_dict.get("intermediate_steps")
-                        if intermediate_steps and len(intermediate_steps) > 1:
-                            sql_command = intermediate_steps[1].sql_
-                            if sql_command.lower().startswith("select count(*)"):
-                                modified_sql = sql_command.replace("LIMIT 5;", "").replace("LIMIT 5", "")
-                                self.logger.info(f"Retrying with modified SQL: {modified_sql}")
-                                with get_db_engine().connect() as connection:
-                                    result = connection.execute(text(modified_sql)).scalar_one()
-                                return str(result)
-                    except Exception as ex:
-                        self.logger.error(f"Error during workaround: {ex}")
-                        self.logger.error(traceback.format_exc())
-                raise
-        self.logger.error("Failed after retries.")
-        return None
+                attempt += 1
+                if attempt == max_retries:
+                    logger.error(f"Failed to execute query after {max_retries} attempts: {e}")
+                    raise
+                delay = backoff_with_jitter(attempt)
+                await asyncio.sleep(delay)
 
-    # ✅ Query Handler
-    async def query_database(self, question: str):
+    async def process_query(self, query: str, prompt_type: Optional[str] = None) -> Dict[str, Any]:
+        """Process a natural language query and return SQL results."""
         try:
-            self.logger.info(f"Received user query: {question}")
-            response = await self.run_query_with_retry(question, use_schema=True)
-            if not response:
-                self.logger.error("No result returned from LangChain.")
-                raise HTTPException(status_code=500, detail="No result returned from LangChain.")
-            self.logger.info(f"Final response: {response}")
-            return {"result": response}
-        except HTTPException as e:
-            raise e
+            if not query or not query.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Query cannot be empty"
+                )
+            
+            # Get relevant schema
+            schema_info = await self.schema_vectorizer.get_relevant_schema(query)
+            
+            # Create database chain
+            chain = await create_db_chain_with_schema(schema_info)
+            
+            # Execute query
+            result = await chain.ainvoke({"query": query, "schema_info": schema_info})
+            
+            # Sanitize response
+            sanitized_result = await sanitize_sql_response(result["result"])
+            
+            return {"result": sanitized_result}
+        
+        except ProgrammingError as e:
+            error_msg = str(e).lower()
+            if "no such table" in error_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Table does not exist"
+                )
+            elif "syntax error" in error_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid SQL syntax"
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Database error: {str(e)}"
+                )
+            
+        except OperationalError as e:
+            if "permission denied" in str(e).lower():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Permission denied"
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Database error: {str(e)}"
+                )
+            
+        except RateLimitError as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="OpenAI rate limit exceeded"
+            )
+        
+        except APIError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"OpenAI API error: {str(e)}"
+            )
+        
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred in query: {e}")
-            self.logger.error(traceback.format_exc())
-            if "rate_limit" in str(e).lower():
-                raise HTTPException(status_code=429, detail="OpenAI API rate limit exceeded. Please try again later.")
-            raise HTTPException(status_code=500, detail="An unexpected error occurred. Check server logs for details.")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unexpected error: {str(e)}"
+            )
 
-    # ✅ Memory Management
-    async def reset_memory(self):
-        memory.clear()
-        return {"message": "Chat memory cleared successfully!"}
+# Create LangChain MySQL instance
+langchain_mysql = LangChainMySQL()
 
-    # ✅ Schema Management
-    async def preload_schema(self):
-        try:
-            await asyncio.to_thread(lambda: self.schema_vectorizer.preload_schema_to_vectordb())
-            return {"message": "Schema preloaded to vector database successfully!"}
-        except Exception as e:
-            self.logger.error(f"Error preloading schema: {e}")
-            self.logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"Error preloading schema: {e}")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    await langchain_mysql.initialize()
+    yield

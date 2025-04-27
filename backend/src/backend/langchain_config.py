@@ -1,25 +1,25 @@
-from langchain_community.chat_models import ChatOpenAI
-from langchain.memory import ConversationSummaryMemory
-from langchain_core.prompts import PromptTemplate
-from langchain_experimental.sql import SQLDatabaseChain
-from langchain_community.utilities import SQLDatabase
-from .database import get_db
-from .schema_vectorizer import SchemaVectorizer
 import os
-import time
-import hashlib
 import json
-from pathlib import Path
-from typing import Dict, List, Optional
-import openai
 import random
+from typing import Optional, List, Dict, Any, Union
+import logging
+from pathlib import Path
+from langchain.chains.base import Chain
+from langchain_community.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain_core.runnables import RunnableSequence
+from langchain_community.utilities import SQLDatabase
+from openai import RateLimitError, APIError
+
+from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
+from .schema_vectorizer import SchemaVectorizer
+from .exceptions import OpenAIRateLimitError, OpenAIAPIError
+
+logger = logging.getLogger(__name__)
 
 # Cache directory
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
-
-# Initialize schema vectorizer
-schema_vectorizer = SchemaVectorizer()
 
 def backoff_with_jitter(attempt: int, base_delay: float = 1.0, max_delay: float = 32.0) -> float:
     """Exponential backoff with jitter."""
@@ -27,126 +27,121 @@ def backoff_with_jitter(attempt: int, base_delay: float = 1.0, max_delay: float 
     jitter = random.uniform(0, delay * 0.1)
     return delay + jitter
 
-class CachedChatOpenAI(ChatOpenAI):
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        # Create cache key
-        cache_key = hashlib.md5(prompt.encode()).hexdigest()
-        cache_file = CACHE_DIR / f"{cache_key}.json"
-        
-        # Check cache
-        if cache_file.exists():
-            cached_data = json.loads(cache_file.read_text())
-            if time.time() - cached_data["timestamp"] < 3600:  # 1 hour cache
-                return cached_data["response"]
-        
-        # Rate limiting
-        max_retries = 5
-        base_delay = 2
-        for attempt in range(max_retries):
-            try:
-                response = super()._call(prompt, stop)
-                # Cache the response
-                cache_data = {
-                    "timestamp": time.time(),
-                    "response": response
-                }
-                cache_file.write_text(json.dumps(cache_data))
-                return response
-            except Exception as e:
-                if "rate_limit" in str(e).lower():
-                    delay = backoff_with_jitter(attempt, base_delay)
-                    time.sleep(delay)
-                    continue
-                raise
-
 class MinimalSQLDatabase(SQLDatabase):
     def get_table_info(self, table_names: Optional[List[str]] = None) -> str:
         """Return minimal table info to reduce token usage."""
         return ""
 
-# Initialize OpenAI client with reduced token limits
-openai_client = openai.OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    max_retries=5,
-    timeout=30
-)
+class CachedChatOpenAI(ChatOpenAI):
+    def __init__(self, cache_dir: str = ".cache", **kwargs):
+        super().__init__(**kwargs)
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+        self.cache_file = os.path.join(cache_dir, "openai_cache.json")
+        self.cache = self._load_cache()
 
-# Initialize chat model with caching and reduced token limits
-chat_model = CachedChatOpenAI(
-    temperature=0,
-    model="gpt-3.5-turbo",
-    max_tokens=50,
-    max_retries=5,
-    timeout=30
-)
+    def _load_cache(self) -> Dict[str, Any]:
+        if os.path.exists(self.cache_file):
+            with open(self.cache_file, 'r') as f:
+                return json.load(f)
+        return {}
 
-# Initialize memory with reduced token limits
-memory = ConversationSummaryMemory(
-    llm=chat_model,
-    memory_key="history",
-    max_token_limit=50,
-    output_key="result"
-)
+    def _save_cache(self) -> None:
+        with open(self.cache_file, 'w') as f:
+            json.dump(self.cache, f)
 
-# Initialize database with minimal wrapper
-db = MinimalSQLDatabase.from_uri(
-    os.getenv("DATABASE_URL", "mysql+pymysql://root:@localhost:3306/dev_tas_live"),
-    include_tables=["active_messages", "message_participants", "message_room_trigger_relations", "message_rooms", "system_messages"]
-)
+    def _generate_cache_key(self, messages) -> str:
+        return str(hash(str(messages)))
 
-# Define a prompt template with memory integration and schema information
-prompt = PromptTemplate(
-    input_variables=["history", "query", "schema_info"],
-    template="""Chat History: {history}
-User: {query}
+    async def agenerate(self, messages, **kwargs):
+        try:
+            cache_key = self._generate_cache_key(messages)
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+            
+            response = await super().agenerate(messages, **kwargs)
+            self.cache[cache_key] = response
+            self._save_cache()
+            return response
+        except RateLimitError as e:
+            raise OpenAIRateLimitError("OpenAI API rate limit exceeded") from e
+        except APIError as e:
+            raise OpenAIAPIError("OpenAI API error occurred") from e
 
-Relevant Tables and Columns:
-{schema_info}
+def get_table_query_prompt(query: str) -> str:
+    """Get the prompt for table name queries."""
+    if not query:
+        raise ValueError("Query cannot be empty")
+    return PROMPT_TABLE_QUERY.format(schema="", query=query)
 
-Write SQL based on the schema above. Use only the tables and columns shown. Keep queries simple and efficient."""
-)
+def get_column_query_prompt(query: str) -> str:
+    """Get the prompt for column name queries."""
+    if not query:
+        raise ValueError("Query cannot be empty")
+    return PROMPT_REFINE.format(schema="", query=query)
 
-# Function to get relevant schema information based on the query
-def get_relevant_schema_info(query):
+def get_sanitize_prompt(sql_result: str) -> str:
+    """Get the prompt for sanitizing SQL responses."""
+    if not sql_result:
+        raise ValueError("SQL result cannot be empty")
+    return f"""Please clean up and sanitize the following SQL result to ensure no sensitive data is exposed:
+
+{sql_result}
+
+Rules for sanitization:
+1. Replace sensitive column values with [PRIVATE]
+2. Keep table names and column names visible
+3. Keep SQL keywords and syntax visible
+4. Keep non-sensitive values (like IDs) visible
+5. Return only the sanitized SQL, no explanations"""
+
+def get_relevant_prompt(query: str, prompt_type: Optional[str], vectorizer: Optional[SchemaVectorizer]) -> str:
+    """
+    Returns a relevant prompt based on the query and type.
+    Falls back to default prompts if vectorizer is not available.
+    """
+    if not query:
+        raise ValueError("Query cannot be empty")
+        
+    if not vectorizer:
+        if prompt_type == "table":
+            return PROMPT_TABLE_QUERY
+        elif prompt_type == "sanitize":
+            return get_sanitize_prompt
+        return PROMPT_REFINE
+        
     try:
-        schema_info = schema_vectorizer.get_relevant_schema(query=query, k=1)
-        return schema_info
+        return vectorizer.get_relevant_prompt(query, prompt_type)
     except Exception as e:
-        print(f"Error getting schema info: {e}")
-        return ""
+        logger.warning(f"Failed to get relevant prompt from vectorizer: {e}")
+        # Fall back to default prompts
+        if prompt_type == "table":
+            return PROMPT_TABLE_QUERY
+        elif prompt_type == "sanitize":
+            return get_sanitize_prompt
+        return PROMPT_REFINE
 
-# Custom chain creation with schema info
-def create_db_chain_with_schema(query):
-    schema_info = get_relevant_schema_info(query)
-    
-    custom_prompt = prompt.format(
-        history=memory.buffer,
-        query=query,
-        schema_info=schema_info
-    )
-    
-    chain = SQLDatabaseChain.from_llm(
-        chat_model,
-        db,
-        verbose=True,
-        return_intermediate_steps=True,
-        memory=memory,
-        top_k=1,
-        use_query_checker=False
-    )
-    
-    return chain, custom_prompt
-
-# Initialize the main database chain
-db_chain = SQLDatabaseChain.from_llm(
-    chat_model,
-    db,
-    verbose=True,
-    return_intermediate_steps=True,
-    memory=memory,
-    top_k=1,
-    use_query_checker=False
-)
-
-# Export llm for backward compatibility
-llm = chat_model
+async def create_db_chain_with_schema(schema_info: str) -> Chain:
+    try:
+        llm = ChatOpenAI(
+            model_name="gpt-3.5-turbo",
+            temperature=0,
+            max_tokens=1000
+        )
+        
+        prompt = PromptTemplate(
+            input_variables=["schema_info", "query"],
+            template="""Given the following SQL schema information:
+            {schema_info}
+            
+            Convert the following natural language query into a SQL query:
+            {query}
+            
+            Return only the SQL query without any additional text or explanation."""
+        )
+        
+        chain = prompt | llm
+        return chain
+    except Exception as e:
+        logging.error(f"Error creating database chain: {str(e)}")
+        raise

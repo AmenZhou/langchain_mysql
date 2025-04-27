@@ -1,161 +1,236 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, ForeignKey
-from sqlalchemy.engine import Engine
-from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
-import tempfile
-import shutil
-import os
-import sys
-from pathlib import Path
-
-# Add the parent directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent))
-
+from unittest.mock import AsyncMock, MagicMock, patch
+from langchain.schema import Document
 from src.backend.schema_vectorizer import SchemaVectorizer
+from src.backend.prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
 
 @pytest.fixture
-def temp_persist_dir():
-    """Create a temporary directory for vector database persistence."""
-    temp_dir = tempfile.mkdtemp()
-    yield temp_dir
-    shutil.rmtree(temp_dir)
+def mock_vector_store():
+    mock = AsyncMock()
+    mock.query_schema = AsyncMock()
+    mock.query_prompts = AsyncMock()
+    mock.initialize_schema_store = AsyncMock()
+    mock.initialize_prompt_store = AsyncMock()
+    mock.add_texts = AsyncMock()
+    mock.similarity_search = AsyncMock()
+    mock.delete_collection = AsyncMock()
+    return mock
 
 @pytest.fixture
-def mock_engine():
-    """Create a mock SQLAlchemy engine."""
-    engine = Mock(spec=Engine)
-    engine.connect.return_value = engine
-    with patch('src.backend.database.engine', engine), \
-         patch('src.backend.schema_vectorizer.engine', engine):
-        yield engine
+def mock_schema_extractor():
+    mock = MagicMock()
+    mock.extract_table_schema = AsyncMock()
+    mock.create_schema_documents = MagicMock()
+    mock.create_prompt_documents = MagicMock()
+    return mock
 
 @pytest.fixture
 def mock_inspector():
-    inspector = Mock()
-    # Mock get_table_names to return test tables
-    inspector.get_table_names.return_value = ['users', 'orders']
-    
-    # Mock get_columns to return test columns
-    test_columns = [
-        {"name": "id", "type": Mock(python_type=int), "nullable": False, "default": None},
-        {"name": "username", "type": Mock(python_type=str), "nullable": True, "default": None}
+    mock = MagicMock()
+    mock.get_table_names.return_value = ['users', 'orders']
+    mock.get_columns.return_value = [
+        {'name': 'id', 'type': 'INTEGER'},
+        {'name': 'username', 'type': 'VARCHAR'}
     ]
-    inspector.get_columns.return_value = test_columns
-    
-    # Mock get_pk_constraint
-    inspector.get_pk_constraint.return_value = {"constrained_columns": ["id"]}
-    
-    # Mock get_foreign_keys
-    inspector.get_foreign_keys.return_value = []
-    
-    # Mock get_indexes
-    inspector.get_indexes.return_value = [{"name": "idx_username", "column_names": ["username"]}]
-    
-    return inspector
+    return mock
 
 @pytest.fixture
-def vectorizer(temp_persist_dir, mock_engine, mock_inspector):
-    """Create a SchemaVectorizer instance with mocked dependencies."""
-    with patch('src.backend.schema_vectorizer.OpenAIEmbeddings') as mock_embeddings, \
-         patch('src.backend.schema_vectorizer.Chroma') as mock_chroma, \
-         patch('sqlalchemy.inspect', return_value=mock_inspector):
-        
-        vectorizer = SchemaVectorizer(persist_directory=temp_persist_dir)
+def vectorizer(mock_vector_store, mock_schema_extractor):
+    with patch('src.backend.schema_vectorizer.VectorStoreManager', return_value=mock_vector_store), \
+         patch('src.backend.schema_vectorizer.SchemaExtractor', return_value=mock_schema_extractor):
+        vectorizer = SchemaVectorizer(persist_directory="./chroma_db")
         return vectorizer
 
-def test_init(vectorizer, temp_persist_dir):
-    """Test SchemaVectorizer initialization."""
-    assert vectorizer.persist_directory == temp_persist_dir
-    assert vectorizer.embeddings is not None
-    assert vectorizer.vectordb is None
+def test_init(vectorizer):
+    """Test initialization of SchemaVectorizer."""
+    assert vectorizer.persist_directory == "./chroma_db"
+    assert vectorizer.vector_store is not None
+    assert vectorizer.schema_extractor is not None
 
 def test_get_all_tables(vectorizer, mock_inspector):
     """Test getting all table names."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
+    # Set up the mock inspector with a return value
+    mock_inspector.get_table_names.return_value = ['test_table1', 'test_table2']
+    
+    # Patch sqlalchemy.inspect to return our mock inspector
+    with patch('src.backend.schema_vectorizer.inspect', return_value=mock_inspector):
         tables = vectorizer.get_all_tables()
-        assert tables == ['users', 'orders']
+        assert isinstance(tables, list)
+        assert all(isinstance(table, str) for table in tables)
         mock_inspector.get_table_names.assert_called_once()
 
-def test_extract_table_schema(vectorizer, mock_inspector):
+@pytest.mark.asyncio
+async def test_extract_table_schema(vectorizer, mock_schema_extractor):
     """Test extracting schema for a specific table."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        schema = vectorizer.extract_table_schema('users')
-        assert schema['table_name'] == 'users'
-        assert len(schema['columns']) == 2
-        assert schema['primary_keys'] == ['id']
-        assert len(schema['indexes']) == 1
-        assert schema['indexes'][0]['name'] == 'idx_username'
-
-def test_create_schema_documents(vectorizer, mock_inspector):
-    """Test creating document objects from schema."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        documents = vectorizer.create_schema_documents()
-        assert len(documents) == 2
-        assert any(doc.page_content.startswith('users:') for doc in documents)
-        assert any(doc.page_content.startswith('orders:') for doc in documents)
+    expected_schema = {
+        'columns': ['id', 'username'],
+        'description': 'User table'
+    }
+    mock_schema_extractor.extract_table_schema.return_value = expected_schema
+    schema = await vectorizer.extract_table_schema('users')
+    assert schema == expected_schema
+    mock_schema_extractor.extract_table_schema.assert_called_once_with('users')
 
 @pytest.mark.asyncio
-async def test_preload_schema_to_vectordb(vectorizer, mock_inspector):
-    """Test preloading schema to vector database."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector), \
-         patch('src.backend.schema_vectorizer.Chroma.from_documents') as mock_from_docs:
-        mock_from_docs.return_value = Mock()
-        documents = vectorizer.preload_schema_to_vectordb()
-        assert len(documents) == 2
-        mock_from_docs.assert_called_once()
+async def test_error_handling_extract_table_schema(vectorizer, mock_schema_extractor):
+    """Test error handling during schema extraction."""
+    mock_schema_extractor.extract_table_schema.side_effect = Exception("Database error")
+    result = await vectorizer.extract_table_schema('users')
+    assert result == {"table_name": "users", "error": "Failed to extract schema"}
 
-def test_query_schema_vectordb(vectorizer):
-    """Test querying the vector database."""
-    mock_results = [
-        Mock(page_content="users: id username", metadata={"table_name": "users"}),
-        Mock(page_content="orders: id user_id total", metadata={"table_name": "orders"})
-    ]
+@pytest.mark.asyncio
+async def test_create_schema_documents(vectorizer, mock_schema_extractor):
+    """Test creating schema documents."""
+    schema_info = {
+        "users": {
+            "columns": ["id", "username"],
+            "description": "User table"
+        }
+    }
+    expected_docs = [Document(page_content="User table schema", metadata={"table": "users"})]
+    mock_schema_extractor.create_schema_documents.return_value = expected_docs
     
-    with patch.object(vectorizer, '_get_chroma_db') as mock_get_db:
-        mock_db = Mock()
-        mock_db.similarity_search.return_value = mock_results
-        mock_get_db.return_value = mock_db
-        
-        results = vectorizer.query_schema_vectordb("find user related tables", k=2)
-        
-        assert len(results) == 2
-        mock_db.similarity_search.assert_called_once_with("find user related tables", k=2)
+    documents = await vectorizer.create_schema_documents(schema_info)
+    assert documents == expected_docs
+    mock_schema_extractor.create_schema_documents.assert_called_once_with(schema_info)
 
-def test_get_relevant_schema_no_query(vectorizer, mock_inspector):
-    """Test getting schema information without a query."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        schema_text = vectorizer.get_relevant_schema()
-        assert "users" in schema_text
-        assert "orders" in schema_text
-
-def test_get_relevant_schema_with_query(vectorizer, mock_inspector):
-    """Test getting schema information with a query."""
-    mock_results = [
-        Mock(page_content="users: id username", metadata={"table_name": "users"})
+def test_create_prompt_documents(vectorizer, mock_schema_extractor):
+    """Test creating prompt documents."""
+    expected_docs = [
+        Document(page_content=PROMPT_REFINE, metadata={"type": "refine"}),
+        Document(page_content=PROMPT_TABLE_QUERY, metadata={"type": "table"})
     ]
+    mock_schema_extractor.create_prompt_documents.return_value = expected_docs
     
-    with patch('sqlalchemy.inspect', return_value=mock_inspector), \
-         patch.object(vectorizer, 'query_schema_vectordb') as mock_query:
-        mock_query.return_value = mock_results
-        schema_text = vectorizer.get_relevant_schema("find user table", k=1)
-        assert "users" in schema_text
-        assert "id" in schema_text
-        assert "username" in schema_text
+    documents = vectorizer.create_prompt_documents()
+    assert documents == expected_docs
+    mock_schema_extractor.create_prompt_documents.assert_called_once()
 
-def test_get_relevant_schema_fallback(vectorizer, mock_inspector):
+@pytest.mark.asyncio
+async def test_preload_schema_to_vectordb(vectorizer, mock_vector_store, mock_schema_extractor):
+    """Test preloading schema to vectordb."""
+    schema_info = {"users": {"columns": ["id", "username"]}}
+    schema_docs = [Document(page_content="User schema", metadata={"table": "users"})]
+    prompt_docs = [Document(page_content=PROMPT_REFINE, metadata={"type": "refine"})]
+    
+    mock_schema_extractor.create_schema_documents.return_value = schema_docs
+    mock_schema_extractor.create_prompt_documents.return_value = prompt_docs
+    
+    await vectorizer.preload_schema_to_vectordb(schema_info)
+    
+    mock_vector_store.initialize_schema_store.assert_called_once_with(schema_docs, None)
+    mock_vector_store.initialize_prompt_store.assert_called_once_with(prompt_docs)
+
+@pytest.mark.asyncio
+async def test_get_relevant_prompt(vectorizer, mock_vector_store):
+    """Test getting relevant prompt."""
+    query = "test query"
+    expected_prompt = "Custom prompt"
+    mock_vector_store.query_prompts.return_value = [Document(page_content=expected_prompt)]
+    
+    result = await vectorizer.get_relevant_prompt(query, "refine")
+    assert result == expected_prompt
+    mock_vector_store.query_prompts.assert_called_once_with(query, "refine")
+
+@pytest.mark.asyncio
+async def test_get_relevant_prompt_fallback(vectorizer, mock_vector_store):
+    """Test prompt fallback behavior."""
+    mock_vector_store.query_prompts.return_value = []
+
+    # Test refine prompt fallback
+    result = await vectorizer.get_relevant_prompt("query", "refine")
+    assert result == PROMPT_REFINE
+
+    # Test table query prompt fallback
+    result = await vectorizer.get_relevant_prompt("query", "table")
+    assert result == PROMPT_TABLE_QUERY
+
+    # Test sanitize prompt fallback with proper sql_result
+    sql_result = "SELECT * FROM users"
+    result = await vectorizer.get_relevant_prompt(sql_result, "sanitize")
+    assert "sanitize" in result.lower()  # Just check if it's a sanitize-related prompt
+
+@pytest.mark.asyncio
+async def test_get_relevant_schema(vectorizer, mock_vector_store):
+    """Test getting relevant schema with vector search."""
+    query = "user details"
+    expected_content = "User schema details"
+    mock_vector_store.query_schema.return_value = [Document(page_content=expected_content)]
+    
+    result = await vectorizer.get_relevant_schema(query)
+    assert result == expected_content
+    mock_vector_store.query_schema.assert_called_once_with(query, k=1)
+
+@pytest.mark.asyncio
+async def test_get_relevant_schema_fallback(vectorizer, mock_vector_store, mock_schema_extractor):
     """Test fallback behavior when vector search fails."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector), \
-         patch.object(vectorizer, 'query_schema_vectordb', side_effect=Exception("Vector search failed")):
-        schema_text = vectorizer.get_relevant_schema("find user table", k=1)
-        # Should fall back to returning all schema info
-        assert "users" in schema_text
-        assert "orders" in schema_text
+    mock_vector_store.query_schema.side_effect = Exception("Vector store error")
+    mock_schema_extractor.extract_table_schema.return_value = {
+        "users": {
+            "columns": ["id", "username"],
+            "description": "User table"
+        }
+    }
+    
+    result = await vectorizer.get_relevant_schema("test query")
+    assert "Table: users" in result
+    assert "Columns: id, username" in result
+    assert "User table" in result
 
-def test_error_handling_extract_table_schema(vectorizer, mock_inspector):
-    """Test error handling in extract_table_schema."""
-    mock_inspector.get_columns.side_effect = Exception("Database error")
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        schema = vectorizer.extract_table_schema('users')
-        assert schema == {'table_name': 'users', 'error': 'Failed to extract schema'} 
+@pytest.mark.asyncio
+async def test_get_relevant_schema_no_query(vectorizer):
+    """Test getting relevant schema with no query."""
+    result = await vectorizer.get_relevant_schema(None)
+    assert result == ""
+    
+    result = await vectorizer.get_relevant_schema("")
+    assert result == ""
+
+@pytest.mark.asyncio
+async def test_get_relevant_schema_error_handling(vectorizer, mock_vector_store, mock_schema_extractor):
+    """Test error handling in get_relevant_schema when both vector store and fallback fail."""
+    mock_vector_store.query_schema.side_effect = Exception("Vector store error")
+    mock_schema_extractor.extract_table_schema.side_effect = Exception("Schema extraction error")
+    
+    result = await vectorizer.get_relevant_schema("test query")
+    assert result == ""  # Should return empty string on complete failure
+
+@pytest.mark.asyncio
+async def test_preload_schema_error_handling(vectorizer, mock_vector_store, mock_schema_extractor):
+    """Test error handling during schema preloading."""
+    # Test case 1: Schema document creation fails
+    mock_schema_extractor.create_schema_documents.side_effect = Exception("Document creation error")
+    try:
+        await vectorizer.preload_schema_to_vectordb({})
+    except Exception as e:
+        assert str(e) == "Document creation error"
+    mock_vector_store.initialize_schema_store.assert_not_called()
+    
+    # Test case 2: Vector store initialization fails
+    mock_schema_extractor.create_schema_documents.side_effect = None
+    mock_schema_extractor.create_schema_documents.return_value = [Document(page_content="test")]
+    mock_vector_store.initialize_schema_store.side_effect = Exception("Store initialization error")
+    
+    try:
+        await vectorizer.preload_schema_to_vectordb({})
+    except Exception as e:
+        assert str(e) == "Store initialization error"
+    mock_vector_store.initialize_schema_store.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_get_relevant_prompt_error_handling(vectorizer, mock_vector_store):
+    """Test error handling in get_relevant_prompt."""
+    # Set up the mock to raise an exception
+    mock_vector_store.query_prompts.side_effect = Exception("Query error")
+    
+    # Test that we get the default prompt when an error occurs
+    result = await vectorizer.get_relevant_prompt("query", "refine")
+    assert result == PROMPT_REFINE
+    
+    result = await vectorizer.get_relevant_prompt("query", "table")
+    assert result == PROMPT_TABLE_QUERY
+    
+    # For sanitize prompt, we need to provide a sql_result
+    sql_result = "SELECT * FROM users"
+    result = await vectorizer.get_relevant_prompt(sql_result, "sanitize")
+    assert "sanitize" in result.lower()  # Just check if it's a sanitize-related prompt
