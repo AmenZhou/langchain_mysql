@@ -2,9 +2,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from langchain_community.utilities import SQLDatabase
 import os
+import pymysql
 
 # Get database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql://user:password@localhost:3306/database")
+DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://user:password@localhost:3306/database")
 
 # Initialize engine and session as None
 _engine = None
@@ -15,7 +16,7 @@ def _get_engine():
     global _engine, _Session
     
     if _engine is None:
-        _engine = create_engine(DATABASE_URL)
+        _engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         _Session = sessionmaker(bind=_engine)
     
     return _engine

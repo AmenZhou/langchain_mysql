@@ -11,7 +11,7 @@ import asyncio
 from .langchain_config import backoff_with_jitter
 import traceback
 import logging
-from openai import RateLimitError, APIError
+from openai import OpenAIError
 from backend.exceptions import DatabaseError
 from backend.langchain_mysql import LangChainMySQL
 
@@ -27,7 +27,6 @@ class QueryRequest(BaseModel):
 
 # Global variables for components
 engine = None
-vectorizer = None
 langchain_mysql = None
 
 def get_db_engine():
@@ -38,37 +37,20 @@ def get_db_engine():
         engine = create_engine(db_url)
     return engine
 
-def get_vectorizer():
-    """Get or create the schema vectorizer."""
-    global vectorizer
-    if vectorizer is None:
-        engine = get_db_engine()
-        vectorizer = SchemaVectorizer(engine)
-        vectorizer.preload_schema_to_vectordb()
-    return vectorizer
-
 async def get_langchain_mysql():
     """Get or create the LangChainMySQL instance."""
     global langchain_mysql
     if langchain_mysql is None:
         langchain_mysql = LangChainMySQL()
-        await langchain_mysql.initialize()
+        try:
+            await langchain_mysql.initialize()
+        except Exception as e:
+            logger.error(f"Error initializing LangChain MySQL: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to initialize LangChain MySQL: {str(e)}"
+            )
     return langchain_mysql
-
-async def execute_query(query: str, schema_info: str) -> str:
-    """Execute a SQL query with schema information."""
-    try:
-        # Create database chain
-        chain = create_db_chain_with_schema(schema_info)
-        
-        # Execute query
-        result = await chain.ainvoke({"query": query})
-        
-        # Sanitize response
-        return await sanitize_sql_response(result["result"])
-    except Exception as e:
-        logger.error(f"Error executing query: {str(e)}")
-        raise
 
 @app.post("/query")
 async def query(request: QueryRequest):
@@ -83,6 +65,9 @@ async def query(request: QueryRequest):
         langchain_mysql = await get_langchain_mysql()
         result = await langchain_mysql.process_query(request.query)
         return result
+        
+    except HTTPException:
+        raise
         
     except ProgrammingError as e:
         error_msg = str(e).lower()
@@ -114,19 +99,21 @@ async def query(request: QueryRequest):
                 detail=f"Database error: {str(e)}"
             )
             
-    except RateLimitError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="OpenAI rate limit exceeded"
-        )
-        
-    except APIError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OpenAI API error: {str(e)}"
-        )
+    except OpenAIError as e:
+        if getattr(e, 'status_code', None) == 429:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="OpenAI rate limit exceeded"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"OpenAI API error: {str(e)}"
+            )
         
     except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error: {str(e)}"

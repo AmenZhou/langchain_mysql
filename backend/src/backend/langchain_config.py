@@ -121,13 +121,14 @@ def get_relevant_prompt(query: str, prompt_type: Optional[str], vectorizer: Opti
             return get_sanitize_prompt
         return PROMPT_REFINE
 
-async def create_db_chain_with_schema(schema_info: str) -> Chain:
+async def create_db_chain_with_schema(schema_info: str, llm: Optional[ChatOpenAI] = None) -> Chain:
     try:
-        llm = ChatOpenAI(
-            model_name="gpt-3.5-turbo",
-            temperature=0,
-            max_tokens=1000
-        )
+        if llm is None:
+            llm = ChatOpenAI(
+                model_name="gpt-3.5-turbo",
+                temperature=0,
+                max_tokens=1000
+            )
         
         prompt = PromptTemplate(
             input_variables=["schema_info", "query"],
@@ -140,8 +141,12 @@ async def create_db_chain_with_schema(schema_info: str) -> Chain:
             Return only the SQL query without any additional text or explanation."""
         )
         
-        chain = prompt | llm
-        return chain
+        try:
+            chain = prompt | llm
+            return chain
+        except Exception as e:
+            logging.error(f"Error creating chain: {str(e)}")
+            raise Exception(f"Failed to create database chain: {str(e)}")
     except Exception as e:
         logging.error(f"Error creating database chain: {str(e)}")
-        raise
+        raise Exception(f"Failed to create database chain: {str(e)}")

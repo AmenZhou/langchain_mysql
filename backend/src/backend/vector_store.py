@@ -1,4 +1,4 @@
-urom langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS, Chroma
 from langchain.schema import Document
 from typing import List, Optional
@@ -7,9 +7,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class VectorStoreManager:
-    def __init__(self, persist_directory: str = "./chroma_db"):
+    def __init__(self, persist_directory: str = "./chroma_db", embeddings: Optional[OpenAIEmbeddings] = None):
         self.persist_directory = persist_directory
-        self.embeddings = OpenAIEmbeddings()
+        self.embeddings = embeddings or OpenAIEmbeddings()
         self.schema_vectordb = None
         self.prompt_vectordb = None
 
@@ -62,4 +62,24 @@ class VectorStoreManager:
             query=query,
             k=k,
             filter=filter_dict
-        ) 
+        )
+        
+    async def add_documents(self, documents: List[Document]) -> None:
+        """Add documents to the schema vector database.
+        
+        Args:
+            documents (List[Document]): Documents to add to the vector store
+            
+        Raises:
+            ValueError: If no documents provided
+            Exception: For other errors during document addition
+        """
+        if not documents:
+            raise ValueError("No documents provided to add to vector store")
+            
+        try:
+            self.initialize_schema_store(documents)
+            logger.info(f"Added {len(documents)} documents to schema vector store")
+        except Exception as e:
+            logger.error(f"Error adding documents to vector store: {e}")
+            raise 

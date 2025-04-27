@@ -32,7 +32,7 @@ RUN pip install -e .
 EXPOSE 8000
 
 # Set environment variables
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app:/app/src
 
 # Run Uvicorn with the new package structure
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src/backend"]

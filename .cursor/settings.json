@@ -1,0 +1,9 @@
+{
+    "test.command": "cd backend && ./scripts/run_tests.sh",
+    "test.workingDirectory": "${workspaceFolder}/backend",
+    "test.prompt": "Tests must be run using the run_tests.sh script to ensure proper MySQL container setup and cleanup. Tests will be retried up to 3 times if they fail.",
+    "test.autoRun": false,
+    "test.showOutput": true,
+    "test.retryCount": 3,
+    "test.retryDelay": 1000
+} 

@@ -22,6 +22,7 @@ from ..langchain_config import (
     get_sanitize_prompt,
     create_db_chain_with_schema
 )
+import re
 
 # ✅ Secure API Key Handling
 def get_openai_client() -> AsyncOpenAI:
@@ -45,154 +46,74 @@ async def get_sql_chain():
         return_intermediate_steps=True
     )
 
-async def generate_column_query(query: str) -> str:
-    """Generate a query to get column information using LangChain's SQL chain."""
+async def generate_column_query(query: str, table_name: str = None, schema_info: str = None) -> str:
+    """Generate SQL query for column information."""
     try:
-        # Get column query prompt
-        prompt = get_column_query_prompt(query)
-        
-        # Extract table name
-        table_name = extract_table_name(query)
-        
-        if not table_name:
-            sql = """
-            SELECT 
-                table_name,
-                GROUP_CONCAT(
-                    CONCAT(
-                        column_name,
-                        ' (', column_type, ')',
-                        IF(is_nullable = 'YES', ' NULL', ' NOT NULL'),
-                        IF(column_comment != '', CONCAT(' - ', column_comment), '')
-                    )
-                    ORDER BY ordinal_position
-                    SEPARATOR '\\n'
-                ) as columns
-            FROM information_schema.columns 
-            GROUP BY table_name;
-            """
-        else:
-            sql = f"""
-            SELECT 
-                column_name,
-                column_type,
-                is_nullable,
-                column_comment,
-                ordinal_position
-            FROM information_schema.columns 
-            WHERE table_name = '{table_name}'
-            ORDER BY ordinal_position;
-            """
-            
         chain = await get_sql_chain()
-        result = await chain.invoke({
-            "query": sql
+        result = await chain.ainvoke({
+            "query": query,
+            "table_name": table_name,
+            "schema_info": schema_info
         })
         return result["result"]
     except Exception as e:
-        print(f"Error in generate_column_query: {e}")
-        return None
+        logger.error(f"Error in generate_column_query: {str(e)}")
+        raise
 
-async def generate_table_query(query: str) -> str:
-    """Generate a query to get table information using LangChain's SQL chain."""
+async def generate_table_query(query: str, schema_info: str = None) -> str:
+    """Generate SQL query for table information."""
     try:
-        # Get table query prompt
-        prompt = get_table_query_prompt(query)
-        
-        # Extract meaningful words
-        words = set(query.lower().split()) - {
-            "show", "list", "tables", "table", "what", "are", "the", "in", "database",
-            "with", "name", "names", "containing", "contains", "include", "includes",
-            "having", "has", "that", "which", "where", "please", "can", "you", "tell",
-            "me", "about", "find", "search", "for"
-        }
-        
-        if not words:
-            sql = "SHOW TABLES;"
-        else:
-            conditions = []
-            for word in words:
-                conditions.append(f"table_name LIKE '%{word}%'")
-            sql = f"SELECT table_name FROM information_schema.tables WHERE {' AND '.join(conditions)};"
-            
         chain = await get_sql_chain()
-        result = await chain.invoke({
-            "query": sql
+        result = await chain.ainvoke({
+            "query": query,
+            "schema_info": schema_info
         })
         return result["result"]
     except Exception as e:
-        print(f"Error in generate_table_query: {e}")
-        return None
+        logger.error(f"Error in generate_table_query: {str(e)}")
+        raise
 
-async def refine_prompt_with_ai(query: str, schema_info: Optional[str] = None) -> Optional[str]:
-    """Refine a natural language query into SQL using AI."""
+async def refine_prompt_with_ai(query: str, schema_info: str = None, prompt_type: str = None) -> str:
+    """Refine natural language query into SQL using AI."""
     try:
-        # Check if this is a table name query
-        if any(phrase in query.lower() for phrase in ["show tables", "list tables", "what tables"]):
-            return await generate_table_query(query)
-            
-        # Check if this is a column query    
-        if any(phrase in query.lower() for phrase in ["what columns", "show columns", "list columns", "what's in", "what is in"]):
-            return await generate_column_query(query)
-            
-        # For other queries, use the AI chain
-        chain = await create_db_chain_with_schema(schema_info or "")
-        response = await chain.ainvoke({"query": query})
-        
-        if not response or "error" in response.lower():
-            # Try table query as fallback
-            return await generate_table_query(query)
-            
-        return response
-        
+        if prompt_type == "table":
+            return await generate_table_query(query, schema_info)
+        elif prompt_type == "column":
+            return await generate_column_query(query, schema_info=schema_info)
+        else:
+            chain = await get_sql_chain()
+            result = await chain.ainvoke({
+                "query": query,
+                "schema_info": schema_info
+            })
+            return result["result"]
     except Exception as e:
-        print(f"Error in refine_prompt_with_ai: {str(e)}")
-        # Fallback to table query
-        return await generate_table_query(query)
+        logger.error(f"Error in refine_prompt_with_ai: {str(e)}")
+        raise
 
 async def sanitize_sql_response(sql_result: str) -> str:
     """Sanitize SQL query results using AI."""
-    try:
-        # Get sanitize prompt from vector database
-        prompt = get_sanitize_prompt(sql_result)
-        
-        # Initialize chat model with token-efficient settings
-        chat = ChatOpenAI(
-            model_name="gpt-3.5-turbo",  # Use smaller model
-            temperature=0,
-            request_timeout=30,
-            max_tokens=500,  # Limit output length
-            frequency_penalty=0.5,  # Encourage concise responses
-            presence_penalty=0.5    # Encourage focused responses
-        )
-        
-        # Get response
-        response = await chat.agenerate([[AIMessage(content=prompt)]])
-        
-        if response and response.generations:
-            return response.generations[0][0].text
-            
-        return sql_result
-        
-    except Exception as e:
-        print(f"Error in sanitize_sql_response: {str(e)}")
-        return sql_result
+    if not sql_result:
+        raise ValueError("Invalid SQL response")
+    return sql_result.strip().rstrip(';')
 
-def extract_table_name(query: str) -> Optional[str]:
-    """Extract table name from query."""
-    query = query.lower()
-    
-    # Common patterns
+def extract_table_name(query: str) -> str:
+    """Extract table name from a query string."""
+    if not query:
+        raise ValueError("Query cannot be empty")
+        
+    # Common SQL patterns
     patterns = [
-        "in table ", "table ", "for ", "of "
+        r"FROM\s+(\w+)",  # SELECT ... FROM table
+        r"INTO\s+(\w+)",  # INSERT INTO table
+        r"UPDATE\s+(\w+)", # UPDATE table
+        r"JOIN\s+(\w+)",  # ... JOIN table
+        r"TABLE\s+(\w+)"  # ... TABLE table
     ]
     
     for pattern in patterns:
-        if pattern in query:
-            parts = query.split(pattern)
-            if len(parts) > 1:
-                # Get the word after the pattern
-                table_name = parts[1].split()[0]
-                return table_name
-                
-    return None 
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            return match.group(1)
+            
+    raise ValueError("Could not extract table name from query")

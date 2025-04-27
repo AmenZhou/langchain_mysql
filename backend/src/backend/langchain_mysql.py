@@ -52,7 +52,13 @@ class LangChainMySQL:
     async def initialize(self):
         """Initialize the LangChain MySQL instance."""
         try:
-            await self.schema_vectorizer.initialize_vector_store()
+            # Extract schema information
+            schema_info = await self.schema_vectorizer.extract_table_schema()
+            if not schema_info:
+                raise ValueError("Failed to extract schema information")
+
+            # Initialize vector store with schema
+            await self.schema_vectorizer.initialize_vector_store(schema_info)
             logger.info("Successfully initialized LangChain MySQL")
         except Exception as e:
             logger.error(f"Error initializing LangChain MySQL: {e}")
@@ -61,87 +67,98 @@ class LangChainMySQL:
     async def run_query_with_retry(self, query: str, max_retries: int = 3) -> str:
         """Run a query with retry logic."""
         attempt = 0
+        last_error = None
         while attempt < max_retries:
             try:
                 with self.engine.connect() as conn:
                     result = conn.execute(text(query))
                     return str(result.fetchall())
             except Exception as e:
+                last_error = e
                 attempt += 1
                 if attempt == max_retries:
                     logger.error(f"Failed to execute query after {max_retries} attempts: {e}")
-                    raise
+                    raise Exception(f"Max retries exceeded: {str(last_error)}")
                 delay = backoff_with_jitter(attempt)
                 await asyncio.sleep(delay)
 
-    async def process_query(self, query: str, prompt_type: Optional[str] = None) -> Dict[str, Any]:
+    async def process_query(self, query: str, prompt_type: str = None) -> str:
         """Process a natural language query and return SQL results."""
         try:
-            if not query or not query.strip():
+            if not query:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=422,
                     detail="Query cannot be empty"
                 )
-            
-            # Get relevant schema
+
+            # Get schema info from vectorizer
             schema_info = await self.schema_vectorizer.get_relevant_schema(query)
             
-            # Create database chain
+            # Create chain and run query
             chain = await create_db_chain_with_schema(schema_info)
-            
-            # Execute query
             result = await chain.ainvoke({"query": query, "schema_info": schema_info})
             
-            # Sanitize response
-            sanitized_result = await sanitize_sql_response(result["result"])
+            if not result or not result.get("result"):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Failed to generate SQL query"
+                )
             
-            return {"result": sanitized_result}
+            return result["result"]
         
-        except ProgrammingError as e:
-            error_msg = str(e).lower()
-            if "no such table" in error_msg:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Table does not exist"
-                )
-            elif "syntax error" in error_msg:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Invalid SQL syntax"
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Database error: {str(e)}"
-                )
-            
-        except OperationalError as e:
-            if "permission denied" in str(e).lower():
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Permission denied"
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Database error: {str(e)}"
-                )
-            
+        except HTTPException as e:
+            raise e
         except RateLimitError as e:
             raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="OpenAI rate limit exceeded"
+                status_code=429,
+                detail=f"Rate limit exceeded: {str(e)}"
             )
-        
         except APIError as e:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=500,
                 detail=f"OpenAI API error: {str(e)}"
             )
-        
+        except ProgrammingError as e:
+            error_msg = str(e).lower()
+            if "relation" in error_msg and "does not exist" in error_msg:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Table does not exist: {str(e)}"
+                )
+            elif "permission" in error_msg or "access denied" in error_msg:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Permission denied: {str(e)}"
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Invalid SQL syntax: {str(e)}"
+                )
+        except OperationalError as e:
+            error_msg = str(e).lower()
+            if "permission" in error_msg or "access denied" in error_msg:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Permission denied: {str(e)}"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {str(e)}"
+            )
+        except ValueError as e:
+            if len(str(query)) > 5000:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Query too long"
+                )
+            raise HTTPException(
+                status_code=422,
+                detail=str(e)
+            )
         except Exception as e:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=500,
                 detail=f"Unexpected error: {str(e)}"
             )
 

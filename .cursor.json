@@ -1,0 +1,28 @@
+{
+    "defaultTestCommand": "cd backend && ./scripts/run_tests.sh",
+    "testCommands": {
+        "backend": {
+            "test": "cd backend && ./scripts/run_tests.sh",
+            "test:watch": "cd backend && ./scripts/run_tests.sh --watch",
+            "test:coverage": "cd backend && ./scripts/run_tests.sh --cov=src/backend"
+        }
+    },
+    "tasks": {
+        "test": {
+            "command": "cd backend && ./scripts/run_tests.sh",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        "test:watch": {
+            "command": "cd backend && ./scripts/run_tests.sh --watch",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        }
+    }
+} 
