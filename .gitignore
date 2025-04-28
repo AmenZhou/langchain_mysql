@@ -1,3 +1,17 @@
 .env
 *.pyc
 logs
+backend/src/backend/vector_store/index.faiss
+backend/src/backend/vector_store/index.pkl
+backend/chroma_db
+backend/chroma_db_prompts
+backend/chroma_db/index.faiss
+backend/chroma_db/index.pkl
+backend/chroma_db_prompts/index.faiss
+backend/chroma_db_prompts/index.pkl
+*.egg-info
+dist
+build
+*.sqlite3
+*.db
+*.sqlite
