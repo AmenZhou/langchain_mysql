@@ -4,6 +4,7 @@ from langchain.schema import Document
 from typing import List, Optional
 import logging
 import asyncio
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,23 @@ class VectorStoreManager:
         self.embeddings = embeddings or OpenAIEmbeddings()
         self.schema_vectordb = None
         self.prompt_vectordb = None
+        self._load_schema_store()
+
+    def _load_schema_store(self) -> None:
+        """Load the schema vector store from disk if it exists."""
+        try:
+            if os.path.exists(self.persist_directory):
+                logger.info(f"Loading schema store from {self.persist_directory}")
+                self.schema_vectordb = FAISS.load_local(
+                    self.persist_directory, 
+                    self.embeddings,
+                    allow_dangerous_deserialization=True  # We trust our own files
+                )
+                logger.info("Successfully loaded schema store from disk")
+        except Exception as e:
+            logger.error(f"Error loading schema store from disk: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
 
     async def initialize_schema_store(self, documents: List[Document], persist_directory: Optional[str] = None) -> None:
         """Initialize or update the schema vector database."""
@@ -26,23 +44,17 @@ class VectorStoreManager:
             logger.info(f"Initializing schema store with {len(documents)} documents")
             texts = [doc.page_content for doc in documents]
             
+            self.schema_vectordb = await asyncio.to_thread(
+                lambda: FAISS.from_texts(
+                    texts=texts,
+                    embedding=self.embeddings,
+                    metadatas=[doc.metadata for doc in documents]
+                )
+            )
+            
             if self.persist_directory:
-                self.schema_vectordb = await asyncio.to_thread(
-                    lambda: FAISS.from_texts(
-                        texts=texts,
-                        embedding=self.embeddings,
-                        metadatas=[doc.metadata for doc in documents]
-                    )
-                )
                 await asyncio.to_thread(lambda: self.schema_vectordb.save_local(self.persist_directory))
-            else:
-                self.schema_vectordb = await asyncio.to_thread(
-                    lambda: FAISS.from_texts(
-                        texts=texts,
-                        embedding=self.embeddings,
-                        metadatas=[doc.metadata for doc in documents]
-                    )
-                )
+                logger.info(f"Saved schema store to {self.persist_directory}")
                 
             logger.info("Schema store initialized successfully")
         except Exception as e:

@@ -106,14 +106,16 @@ class SchemaVectorizer:
         """Create documents from schema information."""
         documents = []
         for table_name, table_info in schema_info.items():
-            columns = table_info['columns']
-            description = table_info['description']
+            columns = table_info.get('columns', [])
+            description = table_info.get('description', '')
             
             # Create a detailed description of the table
             column_descriptions = []
             for col in columns:
-                col_desc = f"{col['name']} ({col['type']}) - {col['description']}"
-                column_descriptions.append(col_desc)
+                col_name = col.get('name', '')
+                col_type = col.get('type', '')
+                col_desc = col.get('description', '')
+                column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
             
             content = f"Table {table_name} contains:\n" + "\n".join(column_descriptions)
             
@@ -121,7 +123,7 @@ class SchemaVectorizer:
                 page_content=content,
                 metadata={
                     'table_name': table_name,
-                    'columns': [col['name'] for col in columns],
+                    'columns': [col.get('name', '') for col in columns],
                     'description': description
                 }
             ))

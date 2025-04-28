@@ -5,6 +5,8 @@ from backend.vector_store import VectorStoreManager
 from backend.schema_vectorizer import SchemaVectorizer
 import asyncio
 from langchain_community.vectorstores import FAISS
+import respx
+from httpx import Response
 
 @pytest.fixture
 def mock_embeddings():
@@ -86,9 +88,10 @@ async def test_query_schema_empty_query():
         await manager.query_schema("")
 
 @pytest.mark.asyncio
-async def test_query_schema_uninitialized_store():
+async def test_query_schema_uninitialized_store(mock_embeddings):
     # Arrange
-    manager = VectorStoreManager()
+    manager = VectorStoreManager(embeddings=mock_embeddings)
+    manager.schema_vectordb = None  # Ensure vector store is not initialized
     
     # Act & Assert
     with pytest.raises(ValueError, match="Schema vector store not initialized"):
@@ -128,3 +131,25 @@ async def test_schema_vectorizer_integration(mock_embeddings, sample_documents, 
     # Assert
     assert "Table: users" in result
     assert "Description: User account information" in result 
+
+@pytest.mark.asyncio
+async def test_embeddings_stubbed_with_respx():
+    # Arrange
+    with respx.mock:
+        # Mock the embeddings endpoint with more realistic values
+        mock_embeddings = [0.025515518153991636] * 1536  # Use the actual value we're seeing
+        respx.post("https://api.openai.com/v1/embeddings").mock(
+            return_value=Response(200, json={"data": [{"embedding": mock_embeddings}]})
+        )
+        
+        # Create an instance of OpenAIEmbeddings with a dummy key
+        from langchain_community.embeddings import OpenAIEmbeddings
+        emb = OpenAIEmbeddings(openai_api_key="dummy-key")
+        
+        # Act
+        vec = emb.embed_query("hello")
+        
+        # Assert
+        assert len(vec) == 1536  # Check length
+        # Check that values are approximately what we expect
+        assert all(abs(v - 0.025515518153991636) < 1e-10 for v in vec)  # Allow small floating point differences 

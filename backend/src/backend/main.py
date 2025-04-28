@@ -14,8 +14,15 @@ logger = logging.getLogger(__name__)
 
 settings = Settings()
 
+# Define persistent directory for vector store
+VECTOR_STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vector_store")
+os.makedirs(VECTOR_STORE_DIR, exist_ok=True)
+
 # Initialize schema vectorizer
-schema_vectorizer = SchemaVectorizer(db_url=os.getenv("DATABASE_URL", "mysql+pymysql://root:@mysql_test:3306/dev_tas_live"))
+schema_vectorizer = SchemaVectorizer(
+    db_url=os.getenv("DATABASE_URL", "mysql+pymysql://root:@mysql_test:3306/dev_tas_live"),
+    persist_directory=VECTOR_STORE_DIR
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

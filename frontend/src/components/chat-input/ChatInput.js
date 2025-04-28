@@ -28,7 +28,7 @@ const ChatInput = () => {
     try {
       // Sending message to FastAPI backend
       const response = await axios.post("http://localhost:8000/query", {
-        question: userMessage,
+        query: userMessage,
       });
 
       // Extracting and format AI response

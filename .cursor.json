@@ -40,5 +40,60 @@
         "enabled": true,
         "showTestStatus": true,
         "groupBy": "file"
+    },
+    "aiGuidelines": {
+        "testExecution": {
+            "alwaysUseRunTestsScript": true,
+            "scriptPath": "backend/scripts/run_tests.sh",
+            "description": "Always use run_tests.sh for test execution to ensure proper MySQL container setup and cleanup"
+        },
+        "testEnvironment": {
+            "dockerRequired": true,
+            "mysqlContainer": "mysql",
+            "testUser": "test_user",
+            "testPassword": "testpassword"
+        },
+        "testCommands": {
+            "default": "cd backend && ./scripts/run_tests.sh",
+            "watchMode": "cd backend && ./scripts/run_tests.sh --watch",
+            "coverage": "cd backend && ./scripts/run_tests.sh --cov=src/backend"
+        },
+        "testDirectories": {
+            "primary": "backend/tests",
+            "secondary": "backend/src/backend/tests"
+        },
+        "testPatterns": [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**/*.py"
+        ],
+        "testGeneration": {
+            "alwaysGenerateSimpleTests": true,
+            "testStructure": {
+                "setup": "Use pytest fixtures for setup",
+                "arrange": "Clear and minimal test data setup",
+                "act": "Single action or operation being tested",
+                "assert": "One clear assertion per test",
+                "teardown": "Automatic cleanup through fixtures"
+            },
+            "testNaming": {
+                "pattern": "test_<functionality>_<scenario>",
+                "example": "test_get_user_by_id_success"
+            },
+            "testPrinciples": [
+                "One test per functionality",
+                "Clear and descriptive test names",
+                "Minimal test data",
+                "Independent test cases",
+                "No test dependencies",
+                "Use meaningful assertions",
+                "Document edge cases"
+            ],
+            "mockGuidelines": {
+                "useFixtures": true,
+                "mockOnlyNecessary": true,
+                "clearMockPurpose": true
+            }
+        }
     }
 } 

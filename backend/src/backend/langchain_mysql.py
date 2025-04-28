@@ -110,16 +110,32 @@ class LangChainMySQL:
             chain = await create_db_chain_with_schema(schema_info)
             logger.info("Invoking chain with query")
             result = await chain.ainvoke({"query": query, "schema_info": schema_info})
-            logger.info(f"Chain result: {result}")
+            logger.info(f"Chain result type: {type(result)}")
+            logger.info(f"Chain result attributes: {dir(result)}")
             
-            if not result or not result.get("result"):
-                logger.error("Failed to generate SQL query from result")
+            if not result:
+                logger.error("Chain returned empty result")
                 raise HTTPException(
                     status_code=422,
-                    detail="Failed to generate SQL query from the result"
+                    detail="Chain returned empty result"
                 )
             
-            return result["result"]
+            if not hasattr(result, 'content'):
+                logger.error(f"Result missing content attribute. Result type: {type(result)}")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Failed to generate SQL query from the result - missing content"
+                )
+            
+            if not result.content:
+                logger.error("Result content is empty")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Generated SQL query is empty"
+                )
+            
+            logger.info(f"Successfully generated SQL query: {result.content}")
+            return result.content
         
         except HTTPException as e:
             logger.error(f"HTTP Exception in process_query: {str(e)}")
@@ -133,7 +149,7 @@ class LangChainMySQL:
         except APIError as e:
             logger.error(f"OpenAI API error: {str(e)}")
             raise HTTPException(
-                status_code=500,
+                status_code=422,
                 detail=f"OpenAI API error: {str(e)}"
             )
         except ProgrammingError as e:
@@ -185,11 +201,21 @@ class LangChainMySQL:
                 detail=f"Unexpected error: {str(e)}"
             )
 
-# Create LangChain MySQL instance
+# Initialize LangChainMySQL instance
 langchain_mysql = LangChainMySQL()
+
+async def get_langchain_mysql() -> LangChainMySQL:
+    """Dependency function to get LangChainMySQL instance."""
+    return langchain_mysql
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
-    await langchain_mysql.initialize()
+    try:
+        logger.info("Initializing LangChainMySQL instance...")
+        await langchain_mysql.initialize()
+        logger.info("LangChainMySQL initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing LangChainMySQL: {e}")
+        logger.error(traceback.format_exc())
     yield

@@ -14,6 +14,8 @@ from backend.schema_vectorizer import SchemaVectorizer
 from contextlib import contextmanager
 from src.backend.utils.error_handling import handle_openai_error
 from src.backend.models import QueryRequest
+import respx
+from httpx import Response
 
 # Add the src directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
@@ -119,6 +121,12 @@ def mock_sql_chain():
         mock_instance = mock.return_value
         mock_instance.invoke = AsyncMock()
         yield mock_instance
+
+@pytest.fixture
+def mock_openai_api_key():
+    """Mock OpenAI API key for testing."""
+    with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'}):
+        yield
 
 @pytest.mark.asyncio
 async def test_health_check_success(client):
@@ -231,6 +239,43 @@ async def test_unexpected_error(mock_sql_chain):
         await handle_openai_error(mock_sql_chain.invoke({"query": "SELECT * FROM users"}))
     assert exc_info.value.status_code == 500
     assert "Unexpected error" in str(exc_info.value.detail)
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_no_relevant_schema_error():
+    """Test error when no relevant schema information is found for the query."""
+    # Define the error message for this test
+    error_message = "No relevant schema information found for the query"
+    
+    # Create a mock LangChainMySQL that raises the specific error
+    async def mock_process_query(*args, **kwargs):
+        raise HTTPException(status_code=422, detail=error_message)
+
+    mock_instance = AsyncMock(spec=LangChainMySQL)
+    mock_instance.process_query.side_effect = mock_process_query
+    
+    # Create a new TestClient with our mocked dependencies
+    with patch('backend.routers.query.LangChainMySQL') as MockClass:
+        # Configure the mock to be returned by dependency injection
+        MockClass.return_value = mock_instance
+        
+        # Create a test client with our patched app
+        client = TestClient(app)
+        
+        # Make a request that should trigger our mocked error
+        response = client.post("/query", json={"query": "test query"})
+        
+        # Verify the response
+        assert response.status_code == 422
+        response_json = response.json()
+        
+        # Check that the error was formatted correctly by the error handler
+        assert "detail" in response_json
+        detail = response_json["detail"]
+        assert "error" in detail
+        assert "details" in detail
+        assert detail["error"] == "HTTP error"
+        assert detail["details"] == error_message
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__]) 
