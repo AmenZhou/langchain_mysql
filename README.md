@@ -98,48 +98,55 @@ For more information on the technologies used in this project, consider explorin
 ## Diagram
 ```mermaid
 graph TD
-    User((User))
-    %% External LLMs (RefineLLM, MainLLM, FilterLLM) will be defined implicitly below
+    %% User interaction
+    User((User)) -->|"Interacts via Browser"| Frontend
 
+    %% Docker environment laid out left‑to‑right
     subgraph Docker_Environment
-        %% Define container nodes directly within this subgraph
-        Frontend["Frontend App (React/Node.js Container)"]
-        Backend["LangChain Backend (Python Container)"]
+        direction LR
+
+        %% Core containers and services
+        Frontend["Frontend App<br/>(React/Node.js)"]
+        Backend["LangChain Backend<br/>(Python)"]
+        RefineLLM["LLM<br/>(Prompt&nbsp;Refiner)"]
+        FAISS["FAISS Vector Store"]
+        MainLLM["LLM<br/>(NL‑to‑SQL&nbsp;+&nbsp;Executor)"]
         DB["MySQL DB Container"]
+        FilterLLM["LLM<br/>(PII&nbsp;Filter)"]
 
-        %% --- Flow of Operations ---
-        %% 1. User query passes through Frontend to Backend
-        Frontend -- ① HTTP Request (Raw NL Query) --> Backend
+        %% 1  User → Frontend → Backend
+        Frontend -- "① HTTP Request<br/>(Raw NL Query)" --> Backend
 
-        %% 2. Backend uses Refine LLM to refine prompt
-        Backend -- ② Raw NL Query --> RefineLLM["LLM (Prompt Refiner)"]
-        RefineLLM -- ③ Refined Prompt --> Backend
+        %% 2–3 Prompt refinement
+        Backend  -- "② Raw NL Query" --> RefineLLM
+        RefineLLM -- "③ Refined Prompt" --> Backend
 
-        %% 3. Backend sends Refined Prompt to Main LLM for Execution
-        Backend -- ④ Refined Prompt + Schema Context --> MainLLM["LLM (NL-to-SQL + Executor)"]
-        MainLLM -- ⑤ Executes SQL --> DB
-        DB -- ⑥ Raw DB Result --> MainLLM
-        MainLLM -- ⑦ Raw DB Result --> Backend
+        %% 4–5 Schema retrieval (now immediately to the right)
+        Backend -- "④ Retrieve Schema Chunks" --> FAISS
+        FAISS   -- "⑤ Schema Context" --> Backend
 
-        %% 4. Backend uses Filter LLM to sanitize the received result
-        Backend -- ⑧ Raw DB Result + Filter Prompt --> FilterLLM["LLM (PII Filter)"]
-        FilterLLM -- ⑨ Sanitized Result --> Backend
+        %% 6–9 Main LLM + DB
+        Backend  -- "⑥ Refined Prompt + Schema Context" --> MainLLM
+        MainLLM  -- "⑦ SQL Query" --> DB
+        DB       -- "⑧ Raw DB Result" --> MainLLM
+        MainLLM  -- "⑨ Raw DB Result" --> Backend
 
-        %% 5. Backend sends sanitized result to Frontend
-        Backend -- ⑩ Sanitized API Response --> Frontend
-        %% --- End Flow ---
+        %% 10–11 Result sanitisation
+        Backend    -- "⑩ Raw DB Result + Filter Prompt" --> FilterLLM
+        FilterLLM  -- "⑪ Sanitised Result" --> Backend
+
+        %% 12 Backend → Frontend
+        Backend -- "⑫ Sanitised API Response" --> Frontend
     end
 
-    %% --- Styling (applied after nodes are implicitly defined/used) ---
-    style Frontend fill:#efe,stroke:#333,stroke-width:2px
-    style Backend fill:#f9f,stroke:#333,stroke-width:2px
-    style DB fill:#ccf,stroke:#333,stroke-width:2px
-    style RefineLLM fill:#cfc,stroke:#696,stroke-width:1px,stroke-dasharray: 3 3
-    style MainLLM fill:#ffc,stroke:#996,stroke-width:1px,stroke-dasharray: 3 3
-    style FilterLLM fill:#fcc,stroke:#966,stroke-width:1px,stroke-dasharray: 3 3
-
-    %% --- User Interaction ---
-    User -- Interacts (e.g., via Browser) --> Frontend
+    %% Styling
+    style Frontend   fill:#e0f7ea,stroke:#333,stroke-width:2px
+    style Backend    fill:#f5e0f7,stroke:#333,stroke-width:2px
+    style DB         fill:#e0ecf7,stroke:#333,stroke-width:2px
+    style FAISS      fill:#d0eaff,stroke:#339,stroke-width:2px
+    style RefineLLM  fill:#d4f7d4,stroke:#696,stroke-width:1px,stroke-dasharray:3 3
+    style MainLLM    fill:#fff4d4,stroke:#996,stroke-width:1px,stroke-dasharray:3 3
+    style FilterLLM  fill:#f7d4d4,stroke:#966,stroke-width:1px,stroke-dasharray:3 3
 ```
 ### Resolve Token Rate Limit Exceeded Problem
 
