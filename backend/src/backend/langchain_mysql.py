@@ -7,11 +7,13 @@ import asyncio
 import logging
 import traceback
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, OperationalError
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import status
 from openai import RateLimitError, APIError
 from contextlib import asynccontextmanager
 from sqlalchemy import text
+from langchain.prompts import PromptTemplate
+from langchain.chat_models import ChatOpenAI
 
 from .langchain_config import create_db_chain_with_schema, backoff_with_jitter  # Import Langchain components
 from .models import QueryRequest  # Import the Pydantic model
@@ -64,15 +66,18 @@ class LangChainMySQL:
             logger.error(f"Error initializing LangChain MySQL: {e}")
             raise
 
-    async def run_query_with_retry(self, query: str, max_retries: int = 3) -> str:
-        """Run a query with retry logic."""
+    async def run_query_with_retry(self, query: str, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """Run a query with retry logic and return structured data."""
         attempt = 0
         last_error = None
         while attempt < max_retries:
             try:
                 with self.engine.connect() as conn:
                     result = conn.execute(text(query))
-                    return str(result.fetchall())
+                    column_names = result.keys()
+                    rows = result.fetchall()
+                    # Convert to list of dictionaries for JSON serialization
+                    return [dict(zip(column_names, row)) for row in rows]
             except Exception as e:
                 last_error = e
                 attempt += 1
@@ -82,8 +87,51 @@ class LangChainMySQL:
                 delay = backoff_with_jitter(attempt)
                 await asyncio.sleep(delay)
 
-    async def process_query(self, query: str, prompt_type: str = None) -> str:
-        """Process a natural language query and return SQL results."""
+    async def generate_explanation(self, sql_query: str, data: List[Dict[str, Any]]) -> str:
+        """Generate a natural language explanation of the SQL query and results."""
+        try:
+            # Use a simple prompt for explanation
+            explanation_prompt = PromptTemplate(
+                input_variables=["sql_query", "data"],
+                template="""Given the SQL query:
+                {sql_query}
+                
+                And the results:
+                {data}
+                
+                Provide a clear, concise explanation of what this query is doing and what the results show. 
+                Explain in natural language that a non-technical person would understand."""
+            )
+            
+            # Use ChatOpenAI for explanation
+            llm = ChatOpenAI(
+                model_name="gpt-3.5-turbo",
+                temperature=0.7  # Slightly more creative for natural language
+            )
+            
+            # Create and run the chain
+            chain = explanation_prompt | llm
+            result = await chain.ainvoke({"sql_query": sql_query, "data": str(data)})
+            
+            if hasattr(result, 'content'):
+                return result.content
+            
+            return str(result)
+        except Exception as e:
+            logger.error(f"Error generating explanation: {e}")
+            return f"Unable to generate explanation due to error: {str(e)}"
+
+    async def process_query(self, query: str, prompt_type: str = None, response_type: str = "sql") -> Dict[str, Any]:
+        """Process a natural language query and return results based on response_type.
+        
+        Args:
+            query: The natural language query
+            prompt_type: Type of prompt to use
+            response_type: Type of response to return (sql, data, natural_language, all)
+        
+        Returns:
+            Dictionary with results based on response_type
+        """
         try:
             logger.info(f"Starting query processing for: {query}")
             if not query:
@@ -102,7 +150,10 @@ class LangChainMySQL:
                 logger.error("No relevant schema information found")
                 raise HTTPException(
                     status_code=422,
-                    detail="No relevant schema information found for the query"
+                    detail={
+                        "error": "Schema Error",
+                        "details": "No relevant schema information found for the query"
+                    }
                 )
             
             # Create chain and run query
@@ -111,31 +162,88 @@ class LangChainMySQL:
             logger.info("Invoking chain with query")
             result = await chain.ainvoke({"query": query, "schema_info": schema_info})
             logger.info(f"Chain result type: {type(result)}")
-            logger.info(f"Chain result attributes: {dir(result)}")
             
             if not result:
                 logger.error("Chain returned empty result")
                 raise HTTPException(
                     status_code=422,
-                    detail="Chain returned empty result"
+                    detail={
+                        "error": "Chain Error",
+                        "details": "Chain returned empty result"
+                    }
                 )
             
             if not hasattr(result, 'content'):
                 logger.error(f"Result missing content attribute. Result type: {type(result)}")
                 raise HTTPException(
                     status_code=422,
-                    detail="Failed to generate SQL query from the result - missing content"
+                    detail={
+                        "error": "Result Error",
+                        "details": "Failed to generate SQL query from the result - missing content"
+                    }
                 )
             
             if not result.content:
                 logger.error("Result content is empty")
                 raise HTTPException(
                     status_code=422,
-                    detail="Generated SQL query is empty"
+                    detail={
+                        "error": "Result Error",
+                        "details": "Generated SQL query is empty"
+                    }
                 )
             
-            logger.info(f"Successfully generated SQL query: {result.content}")
-            return result.content
+            # Extract the SQL query
+            sql_query = result.content.strip()
+            logger.info(f"Successfully generated SQL query: {sql_query}")
+            
+            # Initialize response with SQL query
+            response = {
+                "sql": sql_query,
+                "response_type": response_type
+            }
+            
+            # Based on response type, fetch additional information
+            if response_type in ["data", "all"]:
+                try:
+                    logger.info(f"Executing SQL query: {sql_query}")
+                    data = await self.run_query_with_retry(sql_query)
+                    logger.info(f"Query execution successful. Rows returned: {len(data)}")
+                    response["data"] = data
+                except Exception as e:
+                    logger.error(f"Error executing SQL query: {e}")
+                    # Don't fail the entire request if data execution fails
+                    response["data_error"] = str(e)
+            
+            if response_type in ["natural_language", "all"]:
+                try:
+                    # Only generate explanation if we have data or if we're just asking for natural language
+                    if "data" in response or response_type == "natural_language":
+                        data = response.get("data", [])
+                        logger.info("Generating natural language explanation")
+                        explanation = await self.generate_explanation(sql_query, data)
+                        logger.info(f"Explanation generated successfully")
+                        response["explanation"] = explanation
+                except Exception as e:
+                    logger.error(f"Error generating explanation: {e}")
+                    # Don't fail the entire request if explanation fails
+                    response["explanation_error"] = str(e)
+            
+            # Set the result based on response_type
+            if response_type == "sql":
+                response["result"] = sql_query
+            elif response_type == "data":
+                response["result"] = response.get("data", [])
+            elif response_type == "natural_language":
+                response["result"] = response.get("explanation", "No explanation available")
+            else:  # "all"
+                response["result"] = {
+                    "sql": sql_query,
+                    "data": response.get("data", []),
+                    "explanation": response.get("explanation", "No explanation available")
+                }
+            
+            return response
         
         except HTTPException as e:
             logger.error(f"HTTP Exception in process_query: {str(e)}")

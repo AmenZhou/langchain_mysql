@@ -6,25 +6,25 @@ import sys
 from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, OperationalError
 from openai import RateLimitError, APIError, OpenAIError
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from backend.server import app, get_db_engine, get_langchain_mysql
-from backend.schema_vectorizer import SchemaVectorizer
 from contextlib import contextmanager
-from src.backend.utils.error_handling import handle_openai_error
-from src.backend.models import QueryRequest
 import respx
 from httpx import Response
 
 # Add the src directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from backend.main import app
-from backend.utils import sanitize_sql_response
-from backend.exceptions import DatabaseError, OpenAIRateLimitError, OpenAIAPIError
-from backend.prompts import get_sanitize_prompt
-from backend.langchain_mysql import LangChainMySQL
+from src.backend.main import app
+from src.backend.langchain_mysql import get_langchain_mysql, LangChainMySQL
+from src.backend.schema_vectorizer import SchemaVectorizer
+from src.backend.utils.error_handling import handle_openai_error
+from src.backend.models import QueryRequest
+from src.backend.security import limiter
+from src.backend.utils import sanitize_sql_response
+from src.backend.exceptions import DatabaseError, OpenAIRateLimitError, OpenAIAPIError
+from src.backend.prompts import get_sanitize_prompt
 
 # Mock OpenAI API responses
 mock_rate_limit_response = httpx.Response(
@@ -83,6 +83,11 @@ def mock_langchain_mysql():
 @pytest.fixture
 def client(mock_langchain_mysql):
     """Create a test client with mocked dependencies."""
+    # Override the rate limiter key function to always return a test key
+    def get_test_key(request: Request):
+        return "test_client"
+    limiter.key_func = get_test_key
+    
     with patch('backend.server.get_langchain_mysql', return_value=mock_langchain_mysql):
         return TestClient(app)
 
@@ -242,40 +247,63 @@ async def test_unexpected_error(mock_sql_chain):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_no_relevant_schema_error():
+async def test_no_relevant_schema_error(client, mock_openai_api_key):
     """Test error when no relevant schema information is found for the query."""
-    # Define the error message for this test
-    error_message = "No relevant schema information found for the query"
-    
-    # Create a mock LangChainMySQL that raises the specific error
-    async def mock_process_query(*args, **kwargs):
-        raise HTTPException(status_code=422, detail=error_message)
+    # Create a mock LangChainMySQL instance
+    mock_langchain = Mock()
+    mock_langchain.process_query = AsyncMock()
+    mock_langchain.process_query.side_effect = HTTPException(
+        status_code=422,
+        detail={
+            "error": "Schema Error",
+            "details": "No relevant schema information found for the query"
+        }
+    )
 
-    mock_instance = AsyncMock(spec=LangChainMySQL)
-    mock_instance.process_query.side_effect = mock_process_query
+    # Override the dependency
+    app.dependency_overrides[get_langchain_mysql] = lambda: mock_langchain
+
+    # Mock OpenAI embeddings
+    mock_embeddings = Mock()
+    mock_embeddings.embed_query.return_value = [0.1] * 1536  # Standard OpenAI embedding size
     
-    # Create a new TestClient with our mocked dependencies
-    with patch('backend.routers.query.LangChainMySQL') as MockClass:
-        # Configure the mock to be returned by dependency injection
-        MockClass.return_value = mock_instance
+    # Mock ChatOpenAI
+    mock_chat = Mock()
+    mock_chat.agenerate.return_value = "test response"
+    
+    # Mock all OpenAI-related dependencies
+    with patch('langchain_openai.OpenAIEmbeddings', return_value=mock_embeddings), \
+         patch('langchain_openai.ChatOpenAI', return_value=mock_chat), \
+         patch('langchain_community.chat_models.ChatOpenAI', return_value=mock_chat), \
+         patch('openai.OpenAI') as mock_openai, \
+         patch('backend.utils.sql_utils.AsyncOpenAI') as mock_async_openai:
         
-        # Create a test client with our patched app
-        client = TestClient(app)
+        # Set up the OpenAI mock
+        mock_openai_instance = mock_openai.return_value
+        mock_openai_instance.embeddings.create.return_value = {"data": [{"embedding": [0.1] * 1536}]}
         
-        # Make a request that should trigger our mocked error
-        response = client.post("/query", json={"query": "test query"})
+        # Set up the AsyncOpenAI mock
+        mock_async_openai_instance = mock_async_openai.return_value
+        mock_async_openai_instance.embeddings.create.return_value = {"data": [{"embedding": [0.1] * 1536}]}
         
-        # Verify the response
-        assert response.status_code == 422
-        response_json = response.json()
-        
-        # Check that the error was formatted correctly by the error handler
-        assert "detail" in response_json
-        detail = response_json["detail"]
-        assert "error" in detail
-        assert "details" in detail
-        assert detail["error"] == "HTTP error"
-        assert detail["details"] == error_message
+        try:
+            # Make a POST request to the query endpoint
+            response = client.post("/query", json={"query": "test query"})
+            
+            # Verify the response
+            assert response.status_code == 422
+            response_json = response.json()
+            assert isinstance(response_json, dict)
+            assert "detail" in response_json
+            assert isinstance(response_json["detail"], dict)
+            assert response_json["detail"]["error"] == "Schema Error"
+            assert response_json["detail"]["details"] == "No relevant schema information found for the query"
+            
+            # Verify the mock was called
+            mock_langchain.process_query.assert_called_once()
+        finally:
+            # Clean up any dependency overrides
+            app.dependency_overrides.clear()
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__]) 

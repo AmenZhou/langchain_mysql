@@ -8,6 +8,7 @@
 - Enhanced backend architecture with better error handling
 - Updated configuration and documentation
 - Improved frontend-backend integration
+- Added support for multiple response types including SQL queries, data, and natural language answers
 
 ### Changed
 - Refactored schema extraction to include comprehensive table information
@@ -15,6 +16,7 @@
 - Improved vector store management with persistent storage
 - Updated error handling and logging throughout the system
 - Aligned frontend query parameter naming with backend conventions
+- Enhanced query processing to execute SQL and generate natural language explanations
 
 ### Fixed
 - Improved foreign key relationship detection
@@ -22,6 +24,7 @@
 - Fixed error handling in database operations
 - Improved logging for better debugging
 - Enhanced test coverage across multiple modules
+- Fixed foreign key vectorization to ensure foreign key relationships are properly included in the vector database
 
 ## Detailed Changes
 
@@ -198,4 +201,34 @@ These future improvements aim to:
 - Enhance test understanding
 - Provide better coverage
 - Simplify debugging
-- Accelerate development cycles 
+- Accelerate development cycles
+
+### Multiple Response Types Support
+
+1. **Response Type Options**
+   - Added support for multiple response types:
+     - `sql`: Return only the generated SQL query (default)
+     - `data`: Execute the SQL query and return the results
+     - `natural_language`: Generate natural language explanation of the query and results
+     - `all`: Return SQL, data, and natural language explanation combined
+
+2. **Enhanced Query Processing**
+   - Updated the `process_query` method to handle different response types
+   - Added execution of SQL queries when data is requested
+   - Implemented natural language explanation generation for query results
+   - Created structured data return format for better usability
+
+3. **Improved Response Structure**
+   - Updated the `QueryResponse` model to include:
+     - `result`: The primary result based on the requested response type
+     - `sql`: The generated SQL query
+     - `data`: The data returned from executing the SQL query
+     - `explanation`: Natural language explanation of the results
+     - `response_type`: The type of response that was returned
+
+4. **Error Handling**
+   - Added specific error handling for execution and explanation failures
+   - Implemented graceful degradation when certain response types fail
+   - Maintained backward compatibility for existing integrations
+
+These enhancements provide more flexibility and value to the API consumers, allowing them to choose the most appropriate response format for their use case. 

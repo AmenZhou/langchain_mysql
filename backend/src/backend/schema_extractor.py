@@ -74,11 +74,31 @@ class SchemaExtractor:
                                 "type": str(column["type"]),
                                 "description": f"Column {column['name']} of type {str(column['type'])}"
                             })
+                        
+                        # Get foreign keys
+                        fks = inspector.get_foreign_keys(table)
+                        foreign_key_info = []
+                        for fk in fks:
+                            foreign_key_info.append({
+                                "column": fk["constrained_columns"][0],
+                                "references": f"{fk['referred_table']}.{fk['referred_columns'][0]}"
+                            })
+                        
+                        # Create table description with relationships
+                        description = f"Table {table} contains {', '.join(col['name'] for col in columns)}"
+                        if foreign_key_info:
+                            fk_desc = " and is linked to: " + ", ".join(
+                                f"{fk['column']} references {fk['references']}" 
+                                for fk in foreign_key_info
+                            )
+                            description += fk_desc
+                        
                         schema_info[table] = {
                             'columns': column_info,
-                            'description': f"Table containing {', '.join(col['name'] for col in columns)}"
+                            'foreign_keys': foreign_key_info,
+                            'description': description
                         }
-                        logger.info(f"Successfully processed table {table} with {len(columns)} columns")
+                        logger.info(f"Successfully processed table {table} with {len(columns)} columns and {len(foreign_key_info)} foreign keys")
                     except Exception as table_error:
                         logger.error(f"Error processing table {table}: {str(table_error)}")
                         continue

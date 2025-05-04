@@ -108,6 +108,7 @@ class SchemaVectorizer:
         for table_name, table_info in schema_info.items():
             columns = table_info.get('columns', [])
             description = table_info.get('description', '')
+            foreign_keys = table_info.get('foreign_keys', [])
             
             # Create a detailed description of the table
             column_descriptions = []
@@ -117,13 +118,30 @@ class SchemaVectorizer:
                 col_desc = col.get('description', '')
                 column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
             
-            content = f"Table {table_name} contains:\n" + "\n".join(column_descriptions)
+            # Add foreign key relationships to the content - MAKE THIS MORE PROMINENT
+            fk_section = ""
+            if foreign_keys:
+                fk_descriptions = []
+                for fk in foreign_keys:
+                    fk_descriptions.append(f"{fk['column']} references {fk['references']}")
+                fk_section = f"\n\nFOREIGN KEY RELATIONSHIPS IN {table_name}:\n" + "\n".join(fk_descriptions)
+            
+            content = f"Table {table_name} contains:\n" + "\n".join(column_descriptions) + fk_section
+            
+            # Add additional foreign key context for semantic similarity
+            if foreign_keys:
+                foreign_key_context = "\n\nThis table has relationships with other tables through foreign keys."
+                for fk in foreign_keys:
+                    referred_table = fk['references'].split('.')[0]
+                    foreign_key_context += f"\nThe column {fk['column']} in table {table_name} is linked to table {referred_table}."
+                content += foreign_key_context
             
             documents.append(Document(
                 page_content=content,
                 metadata={
                     'table_name': table_name,
                     'columns': [col.get('name', '') for col in columns],
+                    'foreign_keys': foreign_keys,
                     'description': description
                 }
             ))

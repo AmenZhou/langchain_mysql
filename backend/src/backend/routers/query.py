@@ -4,7 +4,7 @@ from pydantic import BaseModel, ValidationError
 from typing import Optional, Dict, Any
 from ..langchain_mysql import LangChainMySQL, get_langchain_mysql
 from ..security import limiter
-from ..models import QueryResponse
+from ..models import QueryResponse, ResponseType, QueryRequest
 import logging
 import json
 import sys
@@ -31,46 +31,32 @@ class ErrorResponse(BaseModel):
     error: str
     details: Dict[str, Any]
 
-@router.post("/query", responses={
+@router.post("/query", response_model=QueryResponse, responses={
     422: {"model": ErrorResponse, "description": "Validation error"},
     500: {"model": ErrorResponse, "description": "Internal server error"}
 })
 @limiter.limit("5/minute")
-async def process_query(request: Request, langchain_mysql: LangChainMySQL = Depends(get_langchain_mysql)):
+async def process_query(request: Request, query_request: QueryRequest, langchain_mysql: LangChainMySQL = Depends(get_langchain_mysql)):
     # Log request details
-    logger.info(f"Request headers: {dict(request.headers)}")
-    logger.info(f"Request client host: {request.client.host}")
-    
-    # Manually parse and validate JSON body
-    raw = await request.body()
-    body_str = raw.decode()
-    logger.info(f"Raw request body: {body_str}")
-    
-    try:
-        body_json = json.loads(body_str)
-        logger.info(f"Parsed JSON body: {json.dumps(body_json, indent=2)}")
-    except json.JSONDecodeError as e:
-        error_details = {"error": "Invalid JSON", "details": str(e)}
-        logger.error(f"Invalid JSON in request body: {e}")
-        raise HTTPException(status_code=422, detail=error_details)
-    
-    # Extract required fields
-    query = body_json.get("query")
-    prompt_type = body_json.get("prompt_type")
-    
-    if not query or not isinstance(query, str) or not query.strip():
-        error_details = {"error": "Empty query", "details": "Query cannot be empty"}
-        logger.error("Empty or invalid query received")
-        raise HTTPException(status_code=422, detail=error_details)
-    
-    logger.info(f"Processing query: {query}")
-    logger.info(f"Prompt type: {prompt_type}")
+    logger.info(f"Processing query: {query_request.query}")
+    logger.info(f"Prompt type: {query_request.prompt_type}")
+    logger.info(f"Response type: {query_request.response_type}")
     
     # Call the LangChainMySQL to process
     try:
-        result_sql = await langchain_mysql.process_query(query, prompt_type)
-        logger.info(f"Query result: {result_sql}")
-        return QueryResponse(result=result_sql)
+        response_data = await langchain_mysql.process_query(query_request.query, query_request.prompt_type, query_request.response_type)
+        logger.info(f"Query response generated successfully")
+        
+        # Create the response object
+        response = QueryResponse(
+            result=response_data.get("result"),
+            sql=response_data.get("sql"),
+            data=response_data.get("data"),
+            explanation=response_data.get("explanation"),
+            response_type=query_request.response_type
+        )
+        
+        return response
     except HTTPException as e:
         # Preserve our formatted error details
         raise e
