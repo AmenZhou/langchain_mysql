@@ -154,3 +154,55 @@
   max-width: 100%;
   display: block;
 }
+
+/* Response Container Styles */
+.response-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin: 10px 0;
+}
+
+.sql-query, .data, .explanation {
+  padding: 10px;
+  background-color: white;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.sql-query pre, .data pre {
+  margin: 10px 0;
+  padding: 10px;
+  background-color: #f3f3f3;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.explanation {
+  line-height: 1.5;
+}
+
+/* Message Styles */
+.message {
+  margin: 10px 0;
+  padding: 10px 15px;
+  border-radius: 8px;
+  max-width: 80%;
+}
+
+.message.user {
+  background-color: #0078FF;
+  color: white;
+  margin-left: auto;
+}
+
+.message.bot {
+  background-color: #f0f0f0;
+  color: #333;
+  margin-right: auto;
+}

@@ -20,3 +20,6 @@ EXPOSE 4000
 
 # Start the React development server
 CMD ["npm", "start"]
+
+# Add test command
+ENTRYPOINT ["npm", "test"]

@@ -15,3 +15,5 @@ build
 *.sqlite3
 *.db
 *.sqlite
+# Node modules
+node_modules/

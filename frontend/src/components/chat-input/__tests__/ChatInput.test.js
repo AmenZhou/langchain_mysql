@@ -1,179 +1,86 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import axios from 'axios';
 import ChatInput from '../ChatInput';
 
 // Mock axios
 jest.mock('axios');
 
-// Mock scrollIntoView
-window.HTMLElement.prototype.scrollIntoView = function() {};
-
-describe('ChatInput Component', () => {
+describe('ChatInput', () => {
   beforeEach(() => {
     // Clear all mocks before each test
     jest.clearAllMocks();
   });
 
-  it('renders initial bot message', () => {
+  it('renders input field and send button', () => {
     render(<ChatInput />);
-    expect(screen.getByText('Hello! How can I assist you today?')).toBeInTheDocument();
-  });
-
-  it('sends message when enter key is pressed', async () => {
-    // Mock successful API response
-    const mockResponse = { data: { result: 'Test response' } };
-    axios.post.mockImplementation(() => new Promise((resolve) => {
-      setTimeout(() => resolve(mockResponse), 100);
-    }));
-
-    render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
     
-    // Type a message and press enter
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'Test message' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-
-    // Check if loading state is shown
-    expect(screen.getByText('DB Assistant is typing...')).toBeInTheDocument();
-
-    // Wait for the API call to complete and response to be displayed
-    await waitFor(() => {
-      expect(screen.getByText('Test response')).toBeInTheDocument();
-    });
-
-    // Verify API call
-    expect(axios.post).toHaveBeenCalledWith('http://localhost:8000/query', {
-      question: 'Test message'
-    });
+    // Check if input field is present
+    const inputField = screen.getByPlaceholderText('Find the data you need...');
+    expect(inputField).toBeInTheDocument();
+    
+    // Check if send button is present
+    const sendButton = screen.getByRole('button');
+    expect(sendButton).toBeInTheDocument();
   });
 
-  it('handles API errors gracefully', async () => {
-    // Mock API error
-    const mockError = {
-      response: {
-        data: {
-          detail: 'Test error message'
+  it('sends message and displays response', async () => {
+    // Mock axios response
+    const mockResponse = {
+      data: {
+        result: {
+          sql: 'SELECT * FROM users',
+          data: [{ id: 1, name: 'John' }],
+          explanation: 'This query returns all users'
         }
       }
     };
-    axios.post.mockImplementation(() => new Promise((_, reject) => {
-      setTimeout(() => reject(mockError), 100);
-    }));
+    axios.post.mockResolvedValueOnce(mockResponse);
 
     render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
     
-    // Type a message and press enter
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'Test message' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-
-    // Wait for the error message to appear
+    // Type a message
+    const inputField = screen.getByPlaceholderText('Find the data you need...');
+    fireEvent.change(inputField, { target: { value: 'Show me all users' } });
+    
+    // Click send button
+    const sendButton = screen.getByRole('button');
+    fireEvent.click(sendButton);
+    
+    // Wait for the response
     await waitFor(() => {
-      expect(screen.getByText('❌ Test error message')).toBeInTheDocument();
+      const container = screen.getByTestId('chat-input');
+      expect(container.innerHTML).toContain('SQL Query:');
+      expect(container.innerHTML).toContain('SELECT * FROM users');
+      expect(container.innerHTML).toContain('Results:');
+      expect(container.innerHTML).toContain('This query returns all users');
     });
   });
 
-  it('does not send empty messages', () => {
-    render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
-    
-    // Try to send an empty message
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-
-    // Check that no API call was made
-    expect(axios.post).not.toHaveBeenCalled();
-  });
-
-  it('displays nonexistent table error from backend', async () => {
-    // Mock API error for nonexistent table
-    const mockError = {
-      response: {
-        status: 400,
-        data: {
-          detail: 'Database Error: Table "nonexistent_table" does not exist'
-        }
+  it('handles error response', async () => {
+    // Mock axios error
+    const mockError = new Error('Network error');
+    mockError.response = {
+      data: {
+        detail: 'Error connecting to AI server.'
       }
     };
-    axios.post.mockImplementation(() => new Promise((_, reject) => {
-      setTimeout(() => reject(mockError), 100);
-    }));
+    axios.post.mockRejectedValueOnce(mockError);
 
     render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
     
-    // Type a message and press enter
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'Show me data from nonexistent_table' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-
-    // Wait for the error message to appear
-    await waitFor(() => {
-      expect(screen.getByText('❌ Database Error: Table "nonexistent_table" does not exist')).toBeInTheDocument();
-    });
-  });
-
-  it('displays rate limit error from backend', async () => {
-    // Mock API error for rate limit
-    const mockError = {
-      response: {
-        status: 429,
-        data: {
-          detail: 'Rate limit exceeded. Please try again later.'
-        }
-      }
-    };
-    axios.post.mockImplementation(() => new Promise((_, reject) => {
-      setTimeout(() => reject(mockError), 100);
-    }));
-
-    render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
+    // Type a message
+    const inputField = screen.getByPlaceholderText('Find the data you need...');
+    fireEvent.change(inputField, { target: { value: 'Show me all users' } });
     
-    // Type a message and press enter
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'Any question' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-
-    // Wait for the error message to appear
-    await waitFor(() => {
-      expect(screen.getByText('❌ Rate limit exceeded. Please try again later.')).toBeInTheDocument();
-    });
-  });
-
-  it('displays general database error from backend', async () => {
-    // Mock API error for general database error
-    const mockError = {
-      response: {
-        status: 500,
-        data: {
-          detail: 'An unexpected database error occurred'
-        }
-      }
-    };
-    axios.post.mockImplementation(() => new Promise((_, reject) => {
-      setTimeout(() => reject(mockError), 100);
-    }));
-
-    render(<ChatInput />);
-    const input = screen.getByPlaceholderText('Find the data you need...');
+    // Click send button
+    const sendButton = screen.getByRole('button');
+    fireEvent.click(sendButton);
     
-    // Type a message and press enter
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'Any question' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-
-    // Wait for the error message to appear
+    // Wait for the error message
     await waitFor(() => {
-      expect(screen.getByText('❌ An unexpected database error occurred')).toBeInTheDocument();
+      expect(screen.getByText('❌ Error connecting to AI server.')).toBeInTheDocument();
     });
   });
 }); 

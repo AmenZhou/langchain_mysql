@@ -13,7 +13,9 @@ const ChatInput = () => {
 
   // Scroll to bottom when messages update
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (chatEndRef.current && typeof chatEndRef.current.scrollIntoView === 'function') {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const handleSend = async () => {
@@ -31,8 +33,41 @@ const ChatInput = () => {
         query: userMessage,
       });
 
-      // Extracting and format AI response
-      const aiMessage = response.data.result.replace(/\n/g, "<br/>"); // Convert newlines to HTML
+      // Handle the response based on its structure
+      let aiMessage = "";
+      if (response.data.result) {
+        if (typeof response.data.result === 'object') {
+          // If result is an object (for response_type="all")
+          aiMessage = `
+            <div class="response-container">
+              <div class="sql-query">
+                <strong>SQL Query:</strong><br/>
+                <pre>${response.data.result.sql}</pre>
+              </div>
+              <div class="data">
+                <strong>Results:</strong><br/>
+                <pre>${JSON.stringify(response.data.result.data, null, 2)}</pre>
+              </div>
+              <div class="explanation">
+                <strong>Explanation:</strong><br/>
+                ${response.data.result.explanation}
+              </div>
+            </div>
+          `;
+        } else {
+          // If result is a string (for other response types)
+          aiMessage = response.data.result;
+        }
+      } else {
+        // Fallback to individual fields if result is not present
+        aiMessage = `
+          <div class="response-container">
+            ${response.data.sql ? `<div class="sql-query"><strong>SQL Query:</strong><br/><pre>${response.data.sql}</pre></div>` : ''}
+            ${response.data.data ? `<div class="data"><strong>Results:</strong><br/><pre>${JSON.stringify(response.data.data, null, 2)}</pre></div>` : ''}
+            ${response.data.explanation ? `<div class="explanation"><strong>Explanation:</strong><br/>${response.data.explanation}</div>` : ''}
+          </div>
+        `;
+      }
 
       // Displaying response to chat
       setMessages((prev) => [
