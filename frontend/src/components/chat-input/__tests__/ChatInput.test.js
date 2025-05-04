@@ -25,15 +25,53 @@ describe('ChatInput', () => {
     expect(sendButton).toBeInTheDocument();
   });
 
-  it('sends message and displays response', async () => {
-    // Mock axios response
+  it('displays response data correctly', async () => {
+    // Mock axios response with the example data
     const mockResponse = {
       data: {
         result: {
-          sql: 'SELECT * FROM users',
-          data: [{ id: 1, name: 'John' }],
-          explanation: 'This query returns all users'
-        }
+          sql: "SELECT * FROM consult_statuses WHERE consultation_id = 1;",
+          data: [
+            {
+              consult_status_id: 1,
+              consultation_id: 1,
+              consultee_person_id: 144,
+              consultee_person_type: "Member",
+              status_cd: "CONSULTSTATUS_REQ",
+              consult_status_dt: "2025-04-14T19:57:58",
+              reason_type: "MasterCode",
+              reason_cd: "MBRREQUEST_TOVIDEO",
+              data_source_cd: "TAS",
+              exclusion_cd: "IN",
+              created_at: "2025-04-14T19:57:58",
+              created_by: 830,
+              updated_at: "2025-04-14T19:57:58",
+              updated_by: 830
+            }
+          ],
+          explanation: "The SQL query is selecting all columns from the table..."
+        },
+        sql: "SELECT * FROM consult_statuses WHERE consultation_id = 1;",
+        data: [
+          {
+            consult_status_id: 1,
+            consultation_id: 1,
+            consultee_person_id: 144,
+            consultee_person_type: "Member",
+            status_cd: "CONSULTSTATUS_REQ",
+            consult_status_dt: "2025-04-14T19:57:58",
+            reason_type: "MasterCode",
+            reason_cd: "MBRREQUEST_TOVIDEO",
+            data_source_cd: "TAS",
+            exclusion_cd: "IN",
+            created_at: "2025-04-14T19:57:58",
+            created_by: 830,
+            updated_at: "2025-04-14T19:57:58",
+            updated_by: 830
+          }
+        ],
+        explanation: "The SQL query is selecting all columns from the table...",
+        response_type: "all"
       }
     };
     axios.post.mockResolvedValueOnce(mockResponse);
@@ -48,13 +86,20 @@ describe('ChatInput', () => {
     const sendButton = screen.getByRole('button');
     fireEvent.click(sendButton);
     
-    // Wait for the response
+    // Wait for the response and verify its display
     await waitFor(() => {
-      const container = screen.getByTestId('chat-input');
-      expect(container.innerHTML).toContain('SQL Query:');
-      expect(container.innerHTML).toContain('SELECT * FROM users');
-      expect(container.innerHTML).toContain('Results:');
-      expect(container.innerHTML).toContain('This query returns all users');
+      // Check if SQL query is displayed
+      expect(screen.getByText(/SQL Query:/i)).toBeInTheDocument();
+      expect(screen.getByText(/SELECT \* FROM consult_statuses WHERE consultation_id = 1;/i)).toBeInTheDocument();
+      
+      // Check if data is displayed
+      expect(screen.getByText(/Results:/i)).toBeInTheDocument();
+      expect(screen.getByText(/"consult_status_id": 1/i)).toBeInTheDocument();
+      expect(screen.getByText(/"consultee_person_type": "Member"/i)).toBeInTheDocument();
+      
+      // Check if explanation is displayed
+      expect(screen.getByText(/Explanation:/i)).toBeInTheDocument();
+      expect(screen.getByText(/The SQL query is selecting all columns from the table/i)).toBeInTheDocument();
     });
   });
 

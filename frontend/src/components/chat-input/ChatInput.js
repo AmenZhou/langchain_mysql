@@ -29,45 +29,66 @@ const ChatInput = () => {
 
     try {
       // Sending message to FastAPI backend
-      const response = await axios.post("http://localhost:8000/query", {
+      const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8000/query";
+      const response = await axios.post(BACKEND_URL, {
         query: userMessage,
       });
 
-      // Handle the response based on its structure
-      let aiMessage = "";
-      if (response.data.result) {
-        if (typeof response.data.result === 'object') {
-          // If result is an object (for response_type="all")
-          aiMessage = `
-            <div class="response-container">
-              <div class="sql-query">
-                <strong>SQL Query:</strong><br/>
-                <pre>${response.data.result.sql}</pre>
-              </div>
-              <div class="data">
-                <strong>Results:</strong><br/>
-                <pre>${JSON.stringify(response.data.result.data, null, 2)}</pre>
-              </div>
-              <div class="explanation">
-                <strong>Explanation:</strong><br/>
-                ${response.data.result.explanation}
-              </div>
-            </div>
-          `;
-        } else {
-          // If result is a string (for other response types)
-          aiMessage = response.data.result;
+      // Display raw response for debugging
+      console.log("Backend response:", JSON.stringify(response.data, null, 2));
+
+      // Extract the SQL, data, and explanation while safely handling missing fields
+      let sqlQuery = "";
+      let resultData = [];
+      let explanationText = "";
+
+      // First try to get data from top-level fields
+      if (typeof response.data === 'object' && response.data !== null) {
+        if (typeof response.data.sql === 'string') {
+          sqlQuery = response.data.sql;
         }
-      } else {
-        // Fallback to individual fields if result is not present
-        aiMessage = `
-          <div class="response-container">
-            ${response.data.sql ? `<div class="sql-query"><strong>SQL Query:</strong><br/><pre>${response.data.sql}</pre></div>` : ''}
-            ${response.data.data ? `<div class="data"><strong>Results:</strong><br/><pre>${JSON.stringify(response.data.data, null, 2)}</pre></div>` : ''}
-            ${response.data.explanation ? `<div class="explanation"><strong>Explanation:</strong><br/>${response.data.explanation}</div>` : ''}
-          </div>
-        `;
+        
+        if (Array.isArray(response.data.data)) {
+          resultData = response.data.data;
+        }
+        
+        if (typeof response.data.explanation === 'string') {
+          explanationText = response.data.explanation;
+        }
+        
+        // If any fields are missing, try to get them from the result object
+        if (response.data.result && typeof response.data.result === 'object') {
+          if (!sqlQuery && typeof response.data.result.sql === 'string') {
+            sqlQuery = response.data.result.sql;
+          }
+          
+          if (resultData.length === 0 && Array.isArray(response.data.result.data)) {
+            resultData = response.data.result.data;
+          }
+          
+          if (!explanationText && typeof response.data.result.explanation === 'string') {
+            explanationText = response.data.result.explanation;
+          }
+        }
       }
+
+      // Build the HTML response
+      const aiMessage = `
+        <div class="response-container">
+          <div class="sql-query">
+            <strong>SQL Query:</strong><br/>
+            <pre>${sqlQuery || 'No SQL query generated'}</pre>
+          </div>
+          <div class="data">
+            <strong>Results:</strong><br/>
+            <pre>${JSON.stringify(resultData || [], null, 2)}</pre>
+          </div>
+          <div class="explanation">
+            <strong>Explanation:</strong><br/>
+            ${explanationText || 'No explanation available'}
+          </div>
+        </div>
+      `;
 
       // Displaying response to chat
       setMessages((prev) => [

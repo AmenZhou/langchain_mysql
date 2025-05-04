@@ -15,11 +15,11 @@ COPY . .
 # Set environment variable for the port
 ENV PORT=4000
 
+# Set environment variable for backend API URL
+ENV REACT_APP_BACKEND_URL=http://localhost:8000/query
+
 # Expose port 4000 for React dev server
 EXPOSE 4000
 
 # Start the React development server
 CMD ["npm", "start"]
-
-# Add test command
-ENTRYPOINT ["npm", "test"]
