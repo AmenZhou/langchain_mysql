@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+<<<<<<< Updated upstream
   frontend:
     build: ./frontend
     ports:
@@ -52,7 +53,68 @@ services:
       - langchain_app
     networks:
       - teladoc_docker_env
+=======
+  langchain_app:
+    build: ./backend
+    container_name: langchain_app
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
+      DB_NAME: ${DB_NAME:-dev_tas_live}
+      DB_PORT: ${DB_PORT:-3306}
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - teladoc_docker_env
+    depends_on:
+      - mysql
+    command: [
+      "python",
+      "-m",
+      "uvicorn",
+      "backend.langchain_mysql:app",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8000",
+      "--reload"
+    ]
+
+  mysql:
+    image: mysql:8.0
+    container_name: langchain_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-sakila}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - teladoc_docker_env
+    command: --default-authentication-plugin=mysql_native_password
+
+  frontend:
+    build: ./frontend
+    volumes:
+      - /app/node_modules
+      - .:/app
+    ports:
+      - "3000:3000"
+    networks:
+      - teladoc_docker_env
+    stdin_open: true
+    tty: true
+>>>>>>> Stashed changes
 
 networks:
   teladoc_docker_env:
     external: true
+
+volumes:
+  mysql_data:
