@@ -7,8 +7,8 @@ from openai import APIError, RateLimitError
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker
-from src.backend.schema_vectorizer import SchemaVectorizer
-from src.backend.vector_store import VectorStoreManager
+from ..schema_vectorizer import SchemaVectorizer
+from ..vector_store import VectorStoreManager
 from langchain.schema import Document
 import logging
 

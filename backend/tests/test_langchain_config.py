@@ -16,7 +16,7 @@ from ..prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY
 @pytest.fixture
 def mock_chat_model():
     """Create a mock ChatOpenAI instance."""
-    with patch('backend.langchain_config.ChatOpenAI') as mock:
+    with patch('..langchain_config.ChatOpenAI') as mock:
         mock_instance = AsyncMock()
         mock.return_value = mock_instance
         yield mock_instance
@@ -24,7 +24,7 @@ def mock_chat_model():
 @pytest.fixture
 def mock_embeddings():
     """Create a mock OpenAIEmbeddings instance."""
-    with patch('backend.schema_vectorizer.OpenAIEmbeddings') as mock:
+    with patch('..schema_vectorizer.OpenAIEmbeddings') as mock:
         mock_instance = AsyncMock()
         mock.return_value = mock_instance
         yield mock_instance
@@ -69,21 +69,21 @@ def test_get_sanitize_prompt():
 @pytest.mark.asyncio
 async def test_create_db_chain_with_schema_error_handling(mock_chat_model):
     """Test error handling in create_db_chain_with_schema."""
-    with patch('backend.langchain_config.PromptTemplate') as mock_prompt:
+    with patch('..langchain_config.PromptTemplate') as mock_prompt:
         mock_prompt.side_effect = Exception("Chain creation error")
         with pytest.raises(Exception, match="Failed to create database chain"):
             await create_db_chain_with_schema("test schema", llm=mock_chat_model)
 
 def test_get_table_query_prompt_error_handling():
     """Test error handling in get_table_query_prompt."""
-    with patch('backend.langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
+    with patch('..langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
         prompt = get_table_query_prompt("find tables")
         assert prompt is not None
         assert "find tables" in prompt
 
 def test_get_column_query_prompt_error_handling():
     """Test error handling in get_column_query_prompt."""
-    with patch('backend.langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
+    with patch('..langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
         prompt = get_column_query_prompt("show columns")
         assert prompt is not None
         assert "show columns" in prompt
@@ -91,6 +91,6 @@ def test_get_column_query_prompt_error_handling():
 def test_get_sanitize_prompt_error_handling():
     """Test error handling in get_sanitize_prompt."""
     test_sql = "SELECT * FROM users"
-    with patch('backend.langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
+    with patch('..langchain_config.get_relevant_prompt', side_effect=Exception("Vector search error")):
         prompt = get_sanitize_prompt(test_sql)
         assert test_sql in prompt

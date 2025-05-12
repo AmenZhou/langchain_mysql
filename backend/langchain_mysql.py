@@ -28,8 +28,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+MYSQL_URL = "mysql+pymysql://root:rootpassword@mysql:3306/sakila"
+
 # Initialize schema vectorizer
-schema_vectorizer = SchemaVectorizer(db_url=os.getenv("DATABASE_URL", "mysql+pymysql://user:password@localhost:3306/db"))
+schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
 
 # ✅ Lifespan Context Manager
 @asynccontextmanager
@@ -48,8 +50,8 @@ async def lifespan(app: FastAPI):
 
 class LangChainMySQL:
     def __init__(self):
-        self.engine = get_db_engine()
-        self.schema_vectorizer = SchemaVectorizer(db_url=DATABASE_URL)
+        self.engine = get_db_engine(MYSQL_URL)
+        self.schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
 
     async def initialize(self):
         """Initialize the LangChain MySQL instance."""

@@ -1,5 +1,6 @@
 .env
 *.pyc
+__pycache__/
 logs
 backend/src/backend/vector_store/index.faiss
 backend/src/backend/vector_store/index.pkl

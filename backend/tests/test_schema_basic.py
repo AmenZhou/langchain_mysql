@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from langchain.schema import Document
-from src.backend.schema_extractor import SchemaExtractor
-from src.backend.schema_vectorizer import SchemaVectorizer
+from ..schema_extractor import SchemaExtractor
+from ..schema_vectorizer import SchemaVectorizer
 from sqlalchemy import inspect, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.reflection import Inspector

@@ -13,11 +13,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:@localhost:3306/d
 _engine = None
 _Session = None
 
-def get_db_engine():
+def get_db_engine(db_url: str = None):
     """Get or create the database engine."""
     global _engine
-    if _engine is None:
-        _engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    url = db_url or os.getenv("DATABASE_URL", DATABASE_URL)
+    if _engine is None or (db_url and _engine.url != url):
+        _engine = create_engine(url, pool_pre_ping=True)
     return _engine
 
 def get_db():

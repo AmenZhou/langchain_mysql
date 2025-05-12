@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, Mock
 from ..main import app
 from ..langchain_mysql import LangChainMySQL
-from src.backend.security import limiter
+from ..security import limiter
 from starlette.requests import Request
 
 @pytest.fixture
@@ -33,12 +33,12 @@ def test_client(mock_langchain_mysql):
     mock_chat.agenerate.return_value = "test response"
     
     # Mock all OpenAI-related dependencies
-    with patch('backend.server.get_langchain_mysql', return_value=mock_langchain_mysql), \
+    with patch('..server.get_langchain_mysql', return_value=mock_langchain_mysql), \
          patch('langchain_openai.OpenAIEmbeddings', return_value=mock_embeddings), \
          patch('langchain_openai.ChatOpenAI', return_value=mock_chat), \
          patch('langchain_community.chat_models.ChatOpenAI', return_value=mock_chat), \
          patch('openai.OpenAI') as mock_openai, \
-         patch('backend.utils.sql_utils.AsyncOpenAI') as mock_async_openai:
+         patch('..utils.sql_utils.AsyncOpenAI') as mock_async_openai:
         
         # Set up the OpenAI mock
         mock_openai_instance = mock_openai.return_value
