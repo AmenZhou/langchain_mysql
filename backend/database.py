@@ -6,6 +6,7 @@ import pymysql
 from typing import Optional, TYPE_CHECKING
 from fastapi import HTTPException, status
 import logging
+from .db_utils import get_database_url
 
 if TYPE_CHECKING:
     from .langchain_mysql import LangChainMySQL
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Get database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://user:password@localhost:3306/database")
+DATABASE_URL = get_database_url()
 
 # Initialize engine and session as None
 _engine = None

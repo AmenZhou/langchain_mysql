@@ -17,6 +17,7 @@ from .langchain_mysql import LangChainMySQL
 from fastapi.middleware.cors import CORSMiddleware
 from .database import get_db_engine, get_langchain_mysql
 from .models import QueryRequest, QueryResponse
+from .db_utils import get_database_url
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ def get_db_engine():
     """Get or create the database engine."""
     global engine
     if engine is None:
-        db_url = os.getenv("DATABASE_URL", "mysql+pymysql://user:password@localhost/db")
+        db_url = os.getenv("DATABASE_URL", get_database_url())
         engine = create_engine(db_url)
     return engine
 

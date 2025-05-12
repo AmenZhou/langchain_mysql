@@ -1,8 +1,9 @@
 from sqlalchemy import inspect, create_engine
 import os
+from .db_utils import get_database_url
 
 # Database connection
-DB_URI = "mysql+pymysql://root:@localhost:3306/dev_tas_live"
+DB_URI = get_database_url()
 engine = create_engine(DB_URI)
 
 def list_all_tables():

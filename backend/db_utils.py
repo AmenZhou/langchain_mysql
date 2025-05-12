@@ -6,8 +6,12 @@ import logging
 # Configure logging
 logger = logging.getLogger(__name__)
 
+def get_database_url():
+    """Get the database URL from environment or default."""
+    return os.getenv("DATABASE_URL", "mysql+pymysql://root:rootpassword@mysql:3306/sakila")
+
 # Get database URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:@localhost:3306/dev_tas_live")
+DATABASE_URL = get_database_url()
 
 # Initialize engine and session as None
 _engine = None

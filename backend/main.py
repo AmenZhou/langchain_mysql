@@ -5,6 +5,7 @@ from .security import setup_security_middleware, limiter
 from .config import Settings
 from contextlib import asynccontextmanager
 from .schema_vectorizer import SchemaVectorizer
+from .db_utils import get_database_url
 import logging
 import os
 
@@ -20,7 +21,7 @@ os.makedirs(VECTOR_STORE_DIR, exist_ok=True)
 
 # Initialize schema vectorizer
 schema_vectorizer = SchemaVectorizer(
-    db_url=os.getenv("DATABASE_URL", "mysql+pymysql://root:@mysql_test:3306/dev_tas_live"),
+    db_url=get_database_url(),
     persist_directory=VECTOR_STORE_DIR
 )
 

@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, text
 import os
+from .db_utils import get_database_url
 
 # Database connection parameters from docker-compose.yml
 DB_HOST = os.getenv("DB_HOST", "mysql")
@@ -9,7 +10,7 @@ DB_NAME = os.getenv("DB_NAME", "sakila")
 DB_PORT = os.getenv("DB_PORT", "3306")
 
 # Construct database URL
-DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = get_database_url()
 
 def test_connection():
     try:

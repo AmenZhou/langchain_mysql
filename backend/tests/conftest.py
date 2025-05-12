@@ -11,13 +11,14 @@ from ..schema_vectorizer import SchemaVectorizer
 from ..vector_store import VectorStoreManager
 from langchain.schema import Document
 import logging
+from ..db_utils import get_database_url
 
 logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Set up test environment variables."""
-    os.environ["DATABASE_URL"] = "mysql+pymysql://root:@localhost:3306/dev_tas_live"
+    os.environ["DATABASE_URL"] = get_database_url()
     os.environ["OPENAI_API_KEY"] = "test_key"
 
 @pytest.fixture

@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from fastapi import status
 from openai import RateLimitError, APIError
 from contextlib import asynccontextmanager
-from sqlalchemy import text
+from sqlalchemy import text, create_engine
 from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 
@@ -19,7 +19,7 @@ from .langchain_config import create_db_chain_with_schema, backoff_with_jitter  
 from .models import QueryRequest  # Import the Pydantic model
 from .utils import refine_prompt_with_ai, sanitize_sql_response  # Import utility functions
 from .schema_vectorizer import SchemaVectorizer  # Import schema vectorization
-from .db_utils import get_db_engine, DATABASE_URL  # Import database functions
+from .db_utils import get_database_url  # Import database functions
 
 # ✅ Load Environment Variables
 load_dotenv()
@@ -28,7 +28,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-MYSQL_URL = "mysql+pymysql://root:rootpassword@mysql:3306/sakila"
+MYSQL_URL = get_database_url()
 
 # Initialize schema vectorizer
 schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 
 class LangChainMySQL:
     def __init__(self):
-        self.engine = get_db_engine(MYSQL_URL)
+        self.engine = create_engine(MYSQL_URL, pool_pre_ping=True)
         self.schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
 
     async def initialize(self):
