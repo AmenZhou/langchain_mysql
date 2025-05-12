@@ -3,8 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="backend",
     version="0.1.0",
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
+    packages=find_packages(),
     install_requires=[
         "langchain>=0.3.0,<0.4.0",
         "langchain-experimental>=0.3.0,<0.4.0",

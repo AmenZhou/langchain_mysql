@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from backend.langchain_mysql import LangChainMySQL
+from ..langchain_mysql import LangChainMySQL
 
 @pytest.fixture
 def mock_db_engine():

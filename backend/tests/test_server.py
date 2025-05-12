@@ -1,8 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, Mock
-from backend.main import app
-from backend.langchain_mysql import LangChainMySQL
+from ..main import app
+from ..langchain_mysql import LangChainMySQL
 from src.backend.security import limiter
 from starlette.requests import Request
 

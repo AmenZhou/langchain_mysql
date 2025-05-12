@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import argparse
-from backend.schema_vectorizer import preload_schema_to_vectordb
+from .schema_vectorizer import preload_schema_to_vectordb
 
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

@@ -19,7 +19,7 @@ from openai import AsyncOpenAI
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from backend.utils.sql_utils import (
+from ..utils.sql_utils import (
     sanitize_sql_response,
     extract_table_name,
     get_openai_client,

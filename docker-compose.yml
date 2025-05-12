@@ -1,59 +1,6 @@
 version: '3.8'
 
 services:
-<<<<<<< Updated upstream
-  frontend:
-    build: ./frontend
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - PORT=4000
-    depends_on:
-      - langchain_app
-    networks:
-      - teladoc_docker_env
-
-  langchain_app:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DATABASE_URL=mysql+pymysql://root:@mysql:3306/dev_tas_live
-    networks:
-      - teladoc_docker_env
-
-  mysql_test:
-    image: mysql:8.0
-    environment:
-      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
-      - MYSQL_DATABASE=dev_tas_live
-    ports:
-      - "3307:3306"
-    volumes:
-      - ./backend/test_schema.sql:/docker-entrypoint-initdb.d/test_schema.sql
-    networks:
-      - teladoc_docker_env
-
-  frontend_test:
-    build: ./frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - CI=true
-    command: npm test -- --watchAll=false
-    depends_on:
-      - langchain_app
-    networks:
-      - teladoc_docker_env
-=======
   langchain_app:
     build: ./backend
     container_name: langchain_app
@@ -69,19 +16,13 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - teladoc_docker_env
+      - my_workspace
     depends_on:
       - mysql
     command: [
-      "python",
-      "-m",
-      "uvicorn",
-      "backend.langchain_mysql:app",
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "8000",
-      "--reload"
+      "sh",
+      "-c",
+      "export PYTHONPATH=/app && python -m uvicorn backend.langchain_mysql:app --host 0.0.0.0 --port 8000 --reload"
     ]
 
   mysql:
@@ -96,7 +37,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./init-db:/docker-entrypoint-initdb.d
     networks:
-      - teladoc_docker_env
+      - my_workspace
     command: --default-authentication-plugin=mysql_native_password
 
   frontend:
@@ -107,14 +48,13 @@ services:
     ports:
       - "3000:3000"
     networks:
-      - teladoc_docker_env
+      - my_workspace
     stdin_open: true
     tty: true
->>>>>>> Stashed changes
 
 networks:
-  teladoc_docker_env:
-    external: true
+  my_workspace:
+    name: my_workspace
 
 volumes:
   mysql_data:

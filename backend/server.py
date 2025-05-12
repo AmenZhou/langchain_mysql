@@ -12,8 +12,8 @@ from .langchain_config import backoff_with_jitter
 import traceback
 import logging
 from openai import OpenAIError, RateLimitError, APIError
-from backend.exceptions import DatabaseError
-from backend.langchain_mysql import LangChainMySQL
+from .exceptions import DatabaseError
+from .langchain_mysql import LangChainMySQL
 from fastapi.middleware.cors import CORSMiddleware
 from .database import get_db_engine, get_langchain_mysql
 from .models import QueryRequest, QueryResponse

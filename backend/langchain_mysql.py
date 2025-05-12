@@ -327,3 +327,42 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error initializing LangChainMySQL: {e}")
         logger.error(traceback.format_exc())
     yield
+
+# Initialize FastAPI application
+app = FastAPI(
+    title="LangChain MySQL API",
+    description="API for interacting with MySQL using LangChain",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add query endpoint
+@app.post("/query")
+async def process_query_endpoint(query_request: QueryRequest):
+    """Process a natural language query."""
+    try:
+        langchain_mysql = LangChainMySQL()
+        await langchain_mysql.initialize()
+        result = await langchain_mysql.process_query(query_request.query)
+        return result
+    except Exception as e:
+        logger.error(f"Error processing query: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+# Add health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"}

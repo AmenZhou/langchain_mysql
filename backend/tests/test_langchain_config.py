@@ -3,13 +3,15 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
-from backend.langchain_config import (
+from ..langchain_config import (
     create_db_chain_with_schema,
     get_table_query_prompt,
     get_column_query_prompt,
-    get_sanitize_prompt
+    get_sanitize_prompt,
+    get_relevant_prompt,
+    backoff_with_jitter,
 )
-from backend.prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY
+from ..prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY
 
 @pytest.fixture
 def mock_chat_model():

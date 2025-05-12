@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from langchain.schema import Document
-from backend.vector_store import VectorStoreManager
-from backend.schema_vectorizer import SchemaVectorizer
+from ..vector_store import VectorStoreManager
+from ..schema_vectorizer import SchemaVectorizer
 import asyncio
 from langchain_community.vectorstores import FAISS
 import respx
