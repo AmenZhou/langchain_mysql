@@ -14,7 +14,6 @@ from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from ..database import get_db
-from ..schema_vectorizer import SchemaVectorizer
 from langchain_openai import ChatOpenAI
 from ..langchain_config import (
     get_table_query_prompt,

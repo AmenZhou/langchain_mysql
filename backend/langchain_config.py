@@ -1,7 +1,7 @@
 import os
 import json
 import random
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
 import logging
 from pathlib import Path
 from langchain.chains.base import Chain
@@ -12,8 +12,10 @@ from langchain_community.utilities import SQLDatabase
 from openai import RateLimitError, APIError
 
 from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
-from .schema_vectorizer import SchemaVectorizer
 from .exceptions import OpenAIRateLimitError, OpenAIAPIError
+
+if TYPE_CHECKING:
+    from .schema_vectorizer import SchemaVectorizer
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ Rules for sanitization:
 4. Keep non-sensitive values (like IDs) visible
 5. Return only the sanitized SQL, no explanations"""
 
-def get_relevant_prompt(query: str, prompt_type: Optional[str], vectorizer: Optional[SchemaVectorizer]) -> str:
+def get_relevant_prompt(query: str, prompt_type: Optional[str], vectorizer: Optional['SchemaVectorizer']) -> str:
     """
     Returns a relevant prompt based on the query and type.
     Falls back to default prompts if vectorizer is not available.

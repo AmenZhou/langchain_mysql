@@ -3,7 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name="backend",
     version="0.1.0",
-    packages=find_packages(),
+    packages=['backend'] + [f'backend.{pkg}' for pkg in find_packages(where='.') if pkg not in ['tests', 'scripts', 'cache', '.pytest_cache']],
+    package_dir={'backend': '.'},
     install_requires=[
         "langchain>=0.3.0,<0.4.0",
         "langchain-experimental>=0.3.0,<0.4.0",

@@ -1,17 +1,22 @@
+import sys
+import os
+
+# Explicitly add the project root to the Python path
+sys.path.insert(0, '/app')
+
 import pytest
 import pytest_asyncio
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.exc import ProgrammingError, OperationalError
 from openai import APIError, RateLimitError
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker
-from ..schema_vectorizer import SchemaVectorizer
-from ..vector_store import VectorStoreManager
+from backend.schema_vectorizer import SchemaVectorizer
+from backend.vector_store import VectorStoreManager
 from langchain.schema import Document
 import logging
-from ..db_utils import get_database_url
+from backend.db_utils import get_database_url
 
 logger = logging.getLogger(__name__)
 

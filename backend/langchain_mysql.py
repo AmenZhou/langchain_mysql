@@ -198,117 +198,30 @@ class LangChainMySQL:
             # Extract the SQL query
             sql_query = result.content.strip()
             logger.info(f"Successfully generated SQL query: {sql_query}")
-            
-            # Initialize response with SQL query
-            response = {
+
+            # Execute the query and get results
+            try:
+                data = await self.run_query_with_retry(sql_query)
+                explanation = await self.generate_explanation(sql_query, data)
+            except Exception as e:
+                logger.error(f"Error executing query: {e}")
+                data = []
+                explanation = f"Error executing query: {str(e)}"
+
+            # Return the complete response
+            return {
                 "sql": sql_query,
+                "data": data,
+                "explanation": explanation,
                 "response_type": response_type
             }
-            
-            # Based on response type, fetch additional information
-            if response_type in ["data", "all"]:
-                try:
-                    logger.info(f"Executing SQL query: {sql_query}")
-                    data = await self.run_query_with_retry(sql_query)
-                    logger.info(f"Query execution successful. Rows returned: {len(data)}")
-                    response["data"] = data
-                except Exception as e:
-                    logger.error(f"Error executing SQL query: {e}")
-                    # Don't fail the entire request if data execution fails
-                    response["data_error"] = str(e)
-            
-            if response_type in ["natural_language", "all"]:
-                try:
-                    # Only generate explanation if we have data or if we're just asking for natural language
-                    if "data" in response or response_type == "natural_language":
-                        data = response.get("data", [])
-                        logger.info("Generating natural language explanation")
-                        explanation = await self.generate_explanation(sql_query, data)
-                        logger.info(f"Explanation generated successfully")
-                        response["explanation"] = explanation
-                except Exception as e:
-                    logger.error(f"Error generating explanation: {e}")
-                    # Don't fail the entire request if explanation fails
-                    response["explanation_error"] = str(e)
-            
-            # Set the result based on response_type
-            if response_type == "sql":
-                response["result"] = sql_query
-            elif response_type == "data":
-                response["result"] = response.get("data", [])
-            elif response_type == "natural_language":
-                response["result"] = response.get("explanation", "No explanation available")
-            else:  # "all"
-                response["result"] = {
-                    "sql": sql_query,
-                    "data": response.get("data", []),
-                    "explanation": response.get("explanation", "No explanation available")
-                }
-            
-            return response
-        
-        except HTTPException as e:
-            logger.error(f"HTTP Exception in process_query: {str(e)}")
-            raise e
-        except RateLimitError as e:
-            logger.error(f"Rate limit error: {str(e)}")
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded: {str(e)}"
-            )
-        except APIError as e:
-            logger.error(f"OpenAI API error: {str(e)}")
-            raise HTTPException(
-                status_code=422,
-                detail=f"OpenAI API error: {str(e)}"
-            )
-        except ProgrammingError as e:
-            error_msg = str(e).lower()
-            logger.error(f"SQL Programming Error: {error_msg}")
-            if "relation" in error_msg and "does not exist" in error_msg:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Table does not exist: {str(e)}"
-                )
-            elif "permission" in error_msg or "access denied" in error_msg:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Permission denied: {str(e)}"
-                )
-            else:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Invalid SQL syntax: {str(e)}"
-                )
-        except OperationalError as e:
-            error_msg = str(e).lower()
-            logger.error(f"SQL Operational Error: {error_msg}")
-            if "permission" in error_msg or "access denied" in error_msg:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Permission denied: {str(e)}"
-                )
-            raise HTTPException(
-                status_code=500,
-                detail=f"Database error: {str(e)}"
-            )
-        except ValueError as e:
-            logger.error(f"Value Error: {str(e)}")
-            if len(str(query)) > 5000:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Query too long"
-                )
-            raise HTTPException(
-                status_code=422,
-                detail=str(e)
-            )
+
         except Exception as e:
-            logger.error(f"Unexpected error in process_query: {str(e)}")
-            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error processing query: {e}")
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500,
-                detail=f"Unexpected error: {str(e)}"
+                detail=str(e)
             )
 
 # Initialize LangChainMySQL instance

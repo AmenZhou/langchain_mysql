@@ -32,8 +32,8 @@ def test_client(mock_langchain_mysql):
     mock_chat = Mock()
     mock_chat.agenerate.return_value = "test response"
     
-    # Mock all OpenAI-related dependencies
-    with patch('..server.get_langchain_mysql', return_value=mock_langchain_mysql), \
+    # Mock dependencies: Patch the getter used by the router and other components
+    with patch('backend.routers.query.get_langchain_mysql', return_value=mock_langchain_mysql), \
          patch('langchain_openai.OpenAIEmbeddings', return_value=mock_embeddings), \
          patch('langchain_openai.ChatOpenAI', return_value=mock_chat), \
          patch('langchain_community.chat_models.ChatOpenAI', return_value=mock_chat), \

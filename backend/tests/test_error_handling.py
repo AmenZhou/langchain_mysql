@@ -14,17 +14,17 @@ import respx
 from httpx import Response
 
 # Add the src directory to the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ..main import app
-from ..langchain_mysql import get_langchain_mysql, LangChainMySQL
-from ..schema_vectorizer import SchemaVectorizer
-from ..utils.error_handling import handle_openai_error
-from ..models import QueryRequest
-from ..security import limiter
-from ..utils import sanitize_sql_response
-from ..exceptions import DatabaseError, OpenAIRateLimitError, OpenAIAPIError
-from ..prompts import get_sanitize_prompt
+from backend.main import app
+from backend.langchain_mysql import get_langchain_mysql, LangChainMySQL
+from backend.schema_vectorizer import SchemaVectorizer
+from backend.utils.error_handling import handle_openai_error
+from backend.models import QueryRequest
+from backend.security import limiter
+from backend.utils import sanitize_sql_response
+from backend.exceptions import DatabaseError, OpenAIRateLimitError, OpenAIAPIError
+from backend.prompts import get_sanitize_prompt
 
 # Mock OpenAI API responses
 mock_rate_limit_response = httpx.Response(
@@ -52,12 +52,12 @@ def mock_db_engine():
     connection = MagicMock()
     connection.__enter__.return_value = connection
     engine.connect.return_value = connection
-    with patch('..database.get_db_engine', return_value=engine):
+    with patch('backend.database.get_db_engine', return_value=engine):
         yield engine
 
 @pytest.fixture
 def mock_schema_vectorizer():
-    with patch('..schema_vectorizer.SchemaVectorizer') as mock:
+    with patch('backend.schema_vectorizer.SchemaVectorizer') as mock:
         mock_instance = mock.return_value
         mock_instance.get_relevant_prompt.return_value = "Test prompt"
         yield mock_instance
@@ -72,7 +72,7 @@ def mock_chat_model():
 @pytest.fixture
 def mock_langchain_mysql():
     """Mock LangChainMySQL for testing."""
-    with patch('..langchain_mysql.LangChainMySQL') as mock:
+    with patch('backend.langchain_mysql.LangChainMySQL') as mock:
         mock_instance = mock.return_value
         mock_instance.get_relevant_prompt.return_value = "Test prompt"
         mock_instance.get_relevant_schema.return_value = "mocked schema"
@@ -88,12 +88,12 @@ def client(mock_langchain_mysql):
         return "test_client"
     limiter.key_func = get_test_key
     
-    with patch('..server.get_langchain_mysql', return_value=mock_langchain_mysql):
+    with patch('backend.server.get_langchain_mysql', return_value=mock_langchain_mysql):
         return TestClient(app)
 
 @pytest.fixture
 def mock_engine():
-    with patch('..server.get_db_engine') as mock:
+    with patch('backend.server.get_db_engine') as mock:
         engine = Mock()
         connection = Mock()
         connection.__enter__.return_value = connection
@@ -136,7 +136,7 @@ def mock_openai_api_key():
 @pytest.mark.asyncio
 async def test_health_check_success(client):
     """Test successful health check."""
-    with patch("..server.get_db_engine") as mock_engine:
+    with patch("backend.server.get_db_engine") as mock_engine:
         mock_conn = Mock()
         mock_engine.return_value.connect.return_value.__enter__.return_value = mock_conn
         response = client.get("/health")
