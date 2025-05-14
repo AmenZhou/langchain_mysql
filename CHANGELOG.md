@@ -231,4 +231,19 @@ These future improvements aim to:
    - Implemented graceful degradation when certain response types fail
    - Maintained backward compatibility for existing integrations
 
-These enhancements provide more flexibility and value to the API consumers, allowing them to choose the most appropriate response format for their use case. 
+These enhancements provide more flexibility and value to the API consumers, allowing them to choose the most appropriate response format for their use case.
+
+## 05/13/2025
+
+### Changed
+- Refactored `SchemaExtractor` to accept an optional `inspector` object in its constructor. This allows for more direct injection of mock inspectors during testing, improving test stability and simplifying test setup by removing the need for complex patching of `sqlalchemy.inspect`.
+- Internal methods of `SchemaExtractor` (e.g., `get_all_tables`, `extract_table_schema`) now use a new `self.inspector` property, which either returns the injected inspector or lazily creates one from the engine.
+- Updated unit tests for `SchemaExtractor` (`test_schema_basic.py`, `test_schema_extractor.py`, `test_schema_vectorizer.py`) to align with the `SchemaExtractor` refactor, by passing a `mock_inspector` directly during `SchemaExtractor` instantiation.
+- Corrected document content generation in `SchemaExtractor.create_schema_documents` to match test expectations, ensuring consistent output for schema representations.
+- Fixed import path errors in `test_server.py` related to patching `AsyncOpenAI` by using an absolute module path.
+- Stabilized `test_query_endpoint_exists` in `test_server.py` by using FastAPI's `app.dependency_overrides` for the `get_langchain_mysql` dependency, providing a more robust mocking mechanism for endpoint tests.
+- Successfully resolved all previously failing and skipped tests, resulting in a fully passing test suite.
+
+## 05/10/2024
+
+// ... existing code ... 

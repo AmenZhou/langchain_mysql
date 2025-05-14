@@ -11,27 +11,26 @@ def mock_inspector():
         {'name': 'id', 'type': 'INTEGER'},
         {'name': 'name', 'type': 'VARCHAR'}
     ]
+    inspector.get_foreign_keys.return_value = []
     return inspector
 
 @pytest.fixture
-def schema_extractor():
+def schema_extractor(mock_inspector):
     engine = MagicMock()
-    return SchemaExtractor(engine)
+    return SchemaExtractor(engine=engine, inspector=mock_inspector)
 
-@pytest.mark.skip(reason="Extract all tables needs to be fixed")
 @pytest.mark.asyncio
-async def test_extract_all_tables(schema_extractor, mock_inspector):
+async def test_extract_all_tables(schema_extractor):
     """Test extracting schema for all tables."""
-    with patch.object(schema_extractor.engine, 'inspect', return_value=mock_inspector):
-        schema_info = await schema_extractor.extract_table_schema()
-        assert isinstance(schema_info, dict)
-        assert 'users' in schema_info
-        assert len(schema_info['users']['columns']) == 2
+    schema_info = await schema_extractor.extract_table_schema()
+    assert isinstance(schema_info, dict)
+    assert 'users' in schema_info
+    assert 'columns' in schema_info['users']
+    assert len(schema_info['users']['columns']) == 2
 
 @pytest.mark.asyncio
 async def test_extract_empty_database(schema_extractor, mock_inspector):
     """Test extracting schema from empty database."""
     mock_inspector.get_table_names.return_value = []
-    with patch.object(schema_extractor.engine, 'inspect', return_value=mock_inspector):
-        schema_info = await schema_extractor.extract_table_schema()
-        assert schema_info == {} 
+    schema_info = await schema_extractor.extract_table_schema()
+    assert schema_info == {} 

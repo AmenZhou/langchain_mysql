@@ -7,14 +7,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SchemaExtractor:
-    def __init__(self, engine):
+    def __init__(self, engine, inspector=None):
         self.engine = engine
+        self._inspector = inspector
+
+    @property
+    def inspector(self):
+        if self._inspector is None:
+            if self.engine is None:
+                raise ValueError("Cannot create inspector without an engine if one is not provided.")
+            self._inspector = inspect(self.engine)
+        return self._inspector
 
     def get_all_tables(self) -> List[str]:
         """Get all table names from the database."""
         try:
-            inspector = inspect(self.engine)
-            return inspector.get_table_names()
+            return self.inspector.get_table_names()
         except SQLAlchemyError as e:
             logger.error(f"Error getting table names: {e}")
             return []
@@ -23,12 +31,12 @@ class SchemaExtractor:
         """Extract schema information for a specific table or all tables."""
         try:
             logger.info("Starting schema extraction")
-            inspector = inspect(self.engine)
+            current_inspector = self.inspector
             
             if table_name:
                 logger.info(f"Extracting schema for specific table: {table_name}")
                 # Get columns for specific table
-                columns = inspector.get_columns(table_name)
+                columns = current_inspector.get_columns(table_name)
                 column_info = []
                 for column in columns:
                     column_info.append({
@@ -40,13 +48,13 @@ class SchemaExtractor:
                     })
                 
                 # Get primary key
-                pk = inspector.get_pk_constraint(table_name)
+                pk = current_inspector.get_pk_constraint(table_name)
                 
                 # Get foreign keys
-                fks = inspector.get_foreign_keys(table_name)
+                fks = current_inspector.get_foreign_keys(table_name)
                 
                 # Get indexes
-                indexes = inspector.get_indexes(table_name)
+                indexes = current_inspector.get_indexes(table_name)
                 
                 # Combine all schema information
                 return {
@@ -67,7 +75,7 @@ class SchemaExtractor:
                 for table in tables:
                     logger.info(f"Processing table: {table}")
                     try:
-                        columns = inspector.get_columns(table)
+                        columns = current_inspector.get_columns(table)
                         column_info = []
                         for column in columns:
                             column_info.append({
@@ -79,7 +87,7 @@ class SchemaExtractor:
                             })
                         
                         # Get foreign keys
-                        fks = inspector.get_foreign_keys(table)
+                        fks = current_inspector.get_foreign_keys(table)
                         foreign_key_info = []
                         for fk in fks:
                             foreign_key_info.append({
@@ -161,8 +169,7 @@ class SchemaExtractor:
             content_parts = []
             
             # Add table name and basic description
-            content_parts.append(f"Table: {table_name}")
-            content_parts.append(f"Description: {table_info.get('description', '')}")
+            content_parts.append(f"Table {table_name} contains {', '.join(col.get('name', '') for col in table_info.get('columns', []))}")
             
             # Add column information with types and constraints
             content_parts.append("\nColumns:")

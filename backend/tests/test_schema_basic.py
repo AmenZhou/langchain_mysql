@@ -16,6 +16,7 @@ def mock_inspector():
         {'name': 'id', 'type': 'INTEGER'},
         {'name': 'name', 'type': 'VARCHAR'}
     ]
+    inspector.get_foreign_keys.return_value = []
     return inspector
 
 @pytest.fixture
@@ -45,16 +46,15 @@ def mock_vector_store():
     return mock
 
 # Simplified tests
-@pytest.mark.skip(reason="Schema extraction needs to be fixed")
 @pytest.mark.asyncio
 async def test_basic_schema_extraction(mock_inspector, mock_engine):
     """Basic test for schema extraction."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        extractor = SchemaExtractor(mock_engine)
-        schema_info = await extractor.extract_table_schema()
-        assert isinstance(schema_info, dict)
-        assert 'users' in schema_info
-        assert len(schema_info['users']['columns']) == 2
+    extractor = SchemaExtractor(engine=mock_engine, inspector=mock_inspector)
+    
+    schema_info = await extractor.extract_table_schema()
+    assert isinstance(schema_info, dict)
+    assert 'users' in schema_info
+    assert len(schema_info['users']['columns']) == 2
 
 @pytest.mark.asyncio
 async def test_basic_document_creation(mock_schema_extractor):
@@ -75,13 +75,11 @@ async def test_basic_schema_vectorization(mock_schema_extractor, mock_vector_sto
     schema = await vectorizer.get_relevant_schema("")
     assert schema == ""
 
-@pytest.mark.skip(reason="Table extraction needs to be fixed")
 @pytest.mark.asyncio
 async def test_basic_table_extraction(mock_inspector, mock_engine):
     """Basic test for table extraction."""
-    with patch('sqlalchemy.inspect', return_value=mock_inspector):
-        vectorizer = SchemaVectorizer(db_url="mock://test")
-        vectorizer.schema_extractor = SchemaExtractor(mock_engine)
-        schema_info = await vectorizer.schema_extractor.extract_table_schema()
-        assert len(schema_info) == 1
-        assert 'users' in schema_info 
+    vectorizer = SchemaVectorizer(db_url="mock://test")
+    vectorizer.schema_extractor = SchemaExtractor(engine=mock_engine, inspector=mock_inspector)
+    schema_info = await vectorizer.schema_extractor.extract_table_schema()
+    assert len(schema_info) == 1
+    assert 'users' in schema_info 

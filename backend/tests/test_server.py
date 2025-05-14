@@ -16,8 +16,12 @@ def mock_langchain_mysql():
 @pytest.fixture
 def test_client(mock_langchain_mysql):
     """Create a test client."""
+    from ..routers.query import get_langchain_mysql  # Import the actual dependency
+
     # Clear any existing overrides
     app.dependency_overrides = {}
+    # Override the actual dependency used by the /query route
+    app.dependency_overrides[get_langchain_mysql] = lambda: mock_langchain_mysql
     
     # Override the rate limiter key function to always return a test key
     def get_test_key(request: Request):
@@ -32,13 +36,12 @@ def test_client(mock_langchain_mysql):
     mock_chat = Mock()
     mock_chat.agenerate.return_value = "test response"
     
-    # Mock dependencies: Patch the getter used by the router and other components
-    with patch('backend.routers.query.get_langchain_mysql', return_value=mock_langchain_mysql), \
-         patch('langchain_openai.OpenAIEmbeddings', return_value=mock_embeddings), \
+    # Keep other patches if they are necessary for other parts of the app setup not hit by /query directly
+    with patch('langchain_openai.OpenAIEmbeddings', return_value=mock_embeddings), \
          patch('langchain_openai.ChatOpenAI', return_value=mock_chat), \
          patch('langchain_community.chat_models.ChatOpenAI', return_value=mock_chat), \
          patch('openai.OpenAI') as mock_openai, \
-         patch('..utils.sql_utils.AsyncOpenAI') as mock_async_openai:
+         patch('backend.utils.sql_utils.AsyncOpenAI') as mock_async_openai:
         
         # Set up the OpenAI mock
         mock_openai_instance = mock_openai.return_value
