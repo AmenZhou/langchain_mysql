@@ -123,7 +123,7 @@ class LangChainMySQL:
             logger.error(f"Error generating explanation: {e}")
             return f"Unable to generate explanation due to error: {str(e)}"
 
-    async def process_query(self, query: str, prompt_type: str = None, response_type: str = "sql") -> Dict[str, Any]:
+    async def process_query(self, query: str, prompt_type: str = None, response_type: str = "all") -> Dict[str, Any]:
         """Process a natural language query and return results based on response_type.
         
         Args:
@@ -209,12 +209,29 @@ class LangChainMySQL:
                 explanation = f"Error executing query: {str(e)}"
 
             # Return the complete response
-            return {
+            response = {
+                "result": {
+                    "sql": sql_query,
+                    "data": data,
+                    "explanation": explanation
+                },
                 "sql": sql_query,
                 "data": data,
                 "explanation": explanation,
                 "response_type": response_type
             }
+            
+            # If response_type is "sql", only return SQL
+            if response_type == "sql":
+                return {"result": {"sql": sql_query}, "sql": sql_query, "response_type": "sql"}
+            # If response_type is "data", only return data
+            elif response_type == "data":
+                return {"result": {"data": data}, "data": data, "response_type": "data"}
+            # If response_type is "natural_language", only return explanation
+            elif response_type == "natural_language":
+                return {"result": {"explanation": explanation}, "explanation": explanation, "response_type": "natural_language"}
+            
+            return response
 
         except Exception as e:
             logger.error(f"Error processing query: {e}")
@@ -267,7 +284,11 @@ async def process_query_endpoint(query_request: QueryRequest):
     try:
         langchain_mysql = LangChainMySQL()
         await langchain_mysql.initialize()
-        result = await langchain_mysql.process_query(query_request.query)
+        result = await langchain_mysql.process_query(
+            query_request.query,
+            query_request.prompt_type,
+            query_request.response_type
+        )
         return result
     except Exception as e:
         logger.error(f"Error processing query: {e}")

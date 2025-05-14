@@ -63,6 +63,7 @@ class SchemaExtractor:
                 logger.info(f"Found {len(tables)} tables: {tables}")
                 
                 schema_info = {}
+                # First pass: collect all table information
                 for table in tables:
                     logger.info(f"Processing table: {table}")
                     try:
@@ -72,7 +73,9 @@ class SchemaExtractor:
                             column_info.append({
                                 "name": column["name"],
                                 "type": str(column["type"]),
-                                "description": f"Column {column['name']} of type {str(column['type'])}"
+                                "description": f"Column {column['name']} of type {str(column['type'])}",
+                                "nullable": column.get("nullable", True),
+                                "primary_key": column.get("primary_key", False)
                             })
                         
                         # Get foreign keys
@@ -81,41 +84,69 @@ class SchemaExtractor:
                         for fk in fks:
                             foreign_key_info.append({
                                 "column": fk["constrained_columns"][0],
-                                "references": f"{fk['referred_table']}.{fk['referred_columns'][0]}"
+                                "references": f"{fk['referred_table']}.{fk['referred_columns'][0]}",
+                                "description": f"Links to {fk['referred_table']} through {fk['referred_columns'][0]}"
                             })
-                        
-                        # Create table description with relationships
-                        description = f"Table {table} contains {', '.join(col['name'] for col in columns)}"
-                        if foreign_key_info:
-                            fk_desc = " and is linked to: " + ", ".join(
-                                f"{fk['column']} references {fk['references']}" 
-                                for fk in foreign_key_info
-                            )
-                            description += fk_desc
                         
                         schema_info[table] = {
                             'columns': column_info,
                             'foreign_keys': foreign_key_info,
-                            'description': description
+                            'description': f"Table {table} contains {', '.join(col['name'] for col in columns)}"
                         }
-                        logger.info(f"Successfully processed table {table} with {len(columns)} columns and {len(foreign_key_info)} foreign keys")
                     except Exception as table_error:
                         logger.error(f"Error processing table {table}: {str(table_error)}")
                         continue
+
+                # Second pass: enhance descriptions with relationship information
+                for table, info in schema_info.items():
+                    # Add relationship descriptions
+                    relationship_desc = []
+                    
+                    # Add outgoing relationships (foreign keys)
+                    if info['foreign_keys']:
+                        fk_desc = []
+                        for fk in info['foreign_keys']:
+                            ref_table = fk['references'].split('.')[0]
+                            fk_desc.append(f"links to {ref_table} through {fk['column']}")
+                        relationship_desc.append(f"This table {', '.join(fk_desc)}")
+                    
+                    # Add incoming relationships (tables that reference this table)
+                    incoming_refs = []
+                    for other_table, other_info in schema_info.items():
+                        if other_table != table:
+                            for fk in other_info['foreign_keys']:
+                                if fk['references'].split('.')[0] == table:
+                                    incoming_refs.append(f"{other_table} references this table through {fk['column']}")
+                    if incoming_refs:
+                        relationship_desc.append(f"This table is referenced by: {', '.join(incoming_refs)}")
+                    
+                    # Update the description with relationship information
+                    if relationship_desc:
+                        info['description'] += "\n" + "\n".join(relationship_desc)
+                    
+                    # Add a business logic description
+                    if table == 'film':
+                        info['description'] += "\nThis table contains movie information including title, description, and rental details."
+                    elif table == 'actor':
+                        info['description'] += "\nThis table contains actor information including their names."
+                    elif table == 'film_actor':
+                        info['description'] += "\nThis table links actors to films, creating a many-to-many relationship."
+                    elif table == 'inventory':
+                        info['description'] += "\nThis table tracks physical copies of films available for rent."
+                    elif table == 'rental':
+                        info['description'] += "\nThis table records when films are rented and returned."
+                    elif table == 'payment':
+                        info['description'] += "\nThis table records payments made for film rentals."
                 
                 logger.info(f"Successfully extracted schema for {len(schema_info)} tables")
                 return schema_info
             
         except SQLAlchemyError as e:
-            logger.error(f"SQLAlchemy error extracting schema for table {table_name}: {e}")
-            logger.error(f"Error type: {type(e)}")
-            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
-            return {"table_name": table_name, "error": str(e)} if table_name else {}
+            logger.error(f"SQLAlchemy error extracting schema: {e}")
+            return {}
         except Exception as e:
-            logger.error(f"Unexpected error extracting schema for table {table_name}: {e}")
-            logger.error(f"Error type: {type(e)}")
-            logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No additional details'}")
-            return {"table_name": table_name, "error": str(e)} if table_name else {}
+            logger.error(f"Unexpected error extracting schema: {e}")
+            return {}
 
     def create_schema_documents(self, schema_info: Dict) -> List[Document]:
         """Create Document objects for each table schema to be embedded."""
@@ -127,29 +158,44 @@ class SchemaExtractor:
         
         for table_name, table_info in schema_info.items():
             # Create a more descriptive document content
-            description = f"Table {table_name} contains "
+            content_parts = []
             
-            # Add column information with types
+            # Add table name and basic description
+            content_parts.append(f"Table: {table_name}")
+            content_parts.append(f"Description: {table_info.get('description', '')}")
+            
+            # Add column information with types and constraints
+            content_parts.append("\nColumns:")
             columns = table_info.get('columns', [])
-            column_descriptions = []
             for col in columns:
                 col_name = col.get('name', '')
                 col_type = col.get('type', '')
                 col_desc = col.get('description', '')
-                column_descriptions.append(f"{col_name} ({col_type}) - {col_desc}")
+                constraints = []
+                if col.get('primary_key', False):
+                    constraints.append("PRIMARY KEY")
+                if not col.get('nullable', True):
+                    constraints.append("NOT NULL")
+                constraint_str = f" ({', '.join(constraints)})" if constraints else ""
+                content_parts.append(f"- {col_name} ({col_type}){constraint_str}: {col_desc}")
             
-            # Add column descriptions to the document content
-            description += " and ".join(column_descriptions)
+            # Add foreign key relationships
+            foreign_keys = table_info.get('foreign_keys', [])
+            if foreign_keys:
+                content_parts.append("\nForeign Key Relationships:")
+                for fk in foreign_keys:
+                    content_parts.append(f"- {fk['column']} references {fk['references']}: {fk['description']}")
             
-            # Create metadata with full schema information
-            metadata = {
-                "table_name": table_name,
-                "columns": columns,
-                "description": description
-            }
-            
-            # Create the document
-            doc = Document(page_content=description, metadata=metadata)
+            # Create the document with enhanced content
+            doc = Document(
+                page_content="\n".join(content_parts),
+                metadata={
+                    "table_name": table_name,
+                    "columns": [col.get('name', '') for col in columns],
+                    "foreign_keys": foreign_keys,
+                    "description": table_info.get('description', '')
+                }
+            )
             documents.append(doc)
         
         return documents

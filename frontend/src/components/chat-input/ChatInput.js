@@ -32,6 +32,7 @@ const ChatInput = () => {
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8000/query";
       const response = await axios.post(BACKEND_URL, {
         query: userMessage,
+        response_type: "all"  // Always request all response types
       });
 
       // Display raw response for debugging
