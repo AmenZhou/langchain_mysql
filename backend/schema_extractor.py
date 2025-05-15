@@ -132,20 +132,6 @@ class SchemaExtractor:
                     if relationship_desc:
                         info['description'] += "\n" + "\n".join(relationship_desc)
                     
-                    # Add a business logic description
-                    if table == 'film':
-                        info['description'] += "\nThis table contains movie information including title, description, and rental details."
-                    elif table == 'actor':
-                        info['description'] += "\nThis table contains actor information including their names."
-                    elif table == 'film_actor':
-                        info['description'] += "\nThis table links actors to films, creating a many-to-many relationship."
-                    elif table == 'inventory':
-                        info['description'] += "\nThis table tracks physical copies of films available for rent."
-                    elif table == 'rental':
-                        info['description'] += "\nThis table records when films are rented and returned."
-                    elif table == 'payment':
-                        info['description'] += "\nThis table records payments made for film rentals."
-                
                 logger.info(f"Successfully extracted schema for {len(schema_info)} tables")
                 return schema_info
             
