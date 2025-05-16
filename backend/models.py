@@ -12,6 +12,7 @@ class ResponseType(str, Enum):
 class QueryRequest(BaseModel):
     """Request model for query endpoint."""
     query: str
+    session_id: Optional[str] = Field(default=None, description="Optional session ID for maintaining conversation history")
     prompt_type: Optional[str] = None
     response_type: ResponseType = Field(
         default=ResponseType.ALL,

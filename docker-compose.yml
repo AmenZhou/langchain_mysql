@@ -22,7 +22,7 @@ services:
     command: [
       "sh",
       "-c",
-      "export PYTHONPATH=/app && python -m uvicorn backend.langchain_mysql:app --host 0.0.0.0 --port 8000 --reload"
+      "find /app/backend -type f -name '*.pyc' -delete && find /app/backend -type d -name '__pycache__' -exec rm -r {} + && export PYTHONPATH=/app && python -m uvicorn backend.langchain_mysql:app --host 0.0.0.0 --port 8000"
     ]
 
   mysql:

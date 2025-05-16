@@ -246,4 +246,10 @@ These enhancements provide more flexibility and value to the API consumers, allo
 
 ## 05/10/2024
 
+### 05/15/2025
+- Implemented chat history feature to provide conversational context to the LLM.
+  - Stores conversation history per session in memory.
+  - Injects history into prompts for improved contextual understanding.
+  - Allows the chatbot to remember previous turns in a dialogue.
+
 // ... existing code ... 

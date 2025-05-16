@@ -10,6 +10,10 @@ from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnableSequence
 from langchain_community.utilities import SQLDatabase
 from openai import RateLimitError, APIError
+from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferMemory
+from pydantic import Field
+import sys
 
 from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
 from .exceptions import OpenAIRateLimitError, OpenAIAPIError
@@ -19,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Cache directory
+# Cache directory - this is a global fallback, but instance will manage its own
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
@@ -35,40 +39,74 @@ class MinimalSQLDatabase(SQLDatabase):
         return ""
 
 class CachedChatOpenAI(ChatOpenAI):
-    def __init__(self, cache_dir: str = ".cache", **kwargs):
-        super().__init__(**kwargs)
-        self.cache_dir = cache_dir
-        os.makedirs(cache_dir, exist_ok=True)
-        self.cache_file = os.path.join(cache_dir, "openai_cache.json")
-        self.cache = self._load_cache()
+    # Declare cache_dir_path as a Pydantic field for this subclass
+    # This allows it to be configured during instantiation if needed, e.g. CachedChatOpenAI(cache_dir_path="my_new_cache_dir")
+    cache_dir_path: str = Field(default=".langchain_cache")
 
-    def _load_cache(self) -> Dict[str, Any]:
-        if os.path.exists(self.cache_file):
-            with open(self.cache_file, 'r') as f:
-                return json.load(f)
+    # These will be instance variables, not Pydantic fields, initialized in model_post_init
+    _cache: Dict[str, Any]
+    _cache_file: str
+
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize cache-related attributes after Pydantic model fully initializes."""
+        super().model_post_init(__context)
+
+        # Initialize instance variables for cache
+        # self.cache_dir_path is now a proper Pydantic field, set either by default or instantiation
+        os.makedirs(self.cache_dir_path, exist_ok=True)
+        self._cache_file = os.path.join(self.cache_dir_path, "openai_llm_cache.json")
+        self._cache = self._load_cache_from_file()
+        logger.info(f"CachedChatOpenAI initialized. Cache file: {self._cache_file}")
+
+    def _load_cache_from_file(self) -> Dict[str, Any]:
+        if os.path.exists(self._cache_file):
+            try:
+                with open(self._cache_file, 'r') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                logger.warning(f"Cache file {self._cache_file} is corrupted. Starting with an empty cache.")
+                return {}
         return {}
 
-    def _save_cache(self) -> None:
-        with open(self.cache_file, 'w') as f:
-            json.dump(self.cache, f)
+    def _save_cache_to_file(self) -> None:
+        try:
+            with open(self._cache_file, 'w') as f:
+                json.dump(self._cache, f)
+        except Exception as e:
+            logger.error(f"Error saving cache to file {self._cache_file}: {e}")
 
     def _generate_cache_key(self, messages) -> str:
+        # Simple hash of messages. Consider a more robust serialization if messages are complex.
         return str(hash(str(messages)))
 
     async def agenerate(self, messages, **kwargs):
+        # Ensure cache is initialized (it should be by model_post_init)
+        if not hasattr(self, '_cache'):
+            # This is a fallback, should not be normally hit if model_post_init worked
+            logger.warning("Cache not initialized in agenerate, attempting re-init.")
+            self.cache_dir_path = getattr(self, 'cache_dir_path', ".langchain_cache")
+            os.makedirs(self.cache_dir_path, exist_ok=True)
+            self._cache_file = os.path.join(self.cache_dir_path, "openai_llm_cache.json")
+            self._cache = self._load_cache_from_file()
+
+        cache_key = self._generate_cache_key(messages)
+        if cache_key in self._cache:
+            logger.info(f"Returning cached LLM response for key: {cache_key}")
+            return self._cache[cache_key]
+        
+        logger.info(f"Cache miss for LLM key: {cache_key}. Calling API.")
         try:
-            cache_key = self._generate_cache_key(messages)
-            if cache_key in self.cache:
-                return self.cache[cache_key]
-            
             response = await super().agenerate(messages, **kwargs)
-            self.cache[cache_key] = response
-            self._save_cache()
+            self._cache[cache_key] = response
+            self._save_cache_to_file()
             return response
         except RateLimitError as e:
             raise OpenAIRateLimitError("OpenAI API rate limit exceeded") from e
         except APIError as e:
             raise OpenAIAPIError("OpenAI API error occurred") from e
+        except Exception as e:
+            logger.error(f"Unexpected error during LLM call or caching: {e}")
+            raise
 
 def get_table_query_prompt(query: str) -> str:
     """Get the prompt for table name queries."""
@@ -123,32 +161,52 @@ def get_relevant_prompt(query: str, prompt_type: Optional[str], vectorizer: Opti
             return get_sanitize_prompt
         return PROMPT_REFINE
 
-async def create_db_chain_with_schema(schema_info: str, llm: Optional[ChatOpenAI] = None) -> Chain:
+async def create_db_chain_with_schema(
+    schema_info: str, 
+    memory: ConversationBufferMemory,
+    llm: Optional[ChatOpenAI] = None
+) -> LLMChain:
     try:
         if llm is None:
-            llm = ChatOpenAI(
+            # Instantiate CachedChatOpenAI. If cache_dir_path needs to be different from default, pass it here.
+            llm = CachedChatOpenAI( 
                 model_name="gpt-3.5-turbo",
                 temperature=0,
                 max_tokens=1000
+                # e.g., cache_dir_path=".custom_cache_directory"
             )
         
+        template = """You are an AI assistant that converts natural language queries into SQL queries against the provided database schema.
+Use the conversation history to understand context from previous questions if relevant.
+
+Database Schema:
+{schema_info}
+
+Conversation History:
+{history}
+
+User's Current Question: {input}
+
+Based on the conversation history and the user's current question, generate the SQL query.
+Return only the SQL query. Do not include any additional text, preamble, or explanation.
+SQL Query:"""
+        
         prompt = PromptTemplate(
-            input_variables=["schema_info", "query"],
-            template="""Given the following SQL schema information:
-            {schema_info}
-            
-            Convert the following natural language query into a SQL query:
-            {query}
-            
-            Return only the SQL query without any additional text or explanation."""
+            input_variables=["schema_info", "history", "input"],
+            template=template
         )
         
         try:
-            chain = prompt | llm
+            chain = LLMChain(
+                llm=llm,
+                prompt=prompt,
+                memory=memory,
+                verbose=True
+            )
             return chain
         except Exception as e:
-            logging.error(f"Error creating chain: {str(e)}")
-            raise Exception(f"Failed to create database chain: {str(e)}")
+            logging.error(f"Error creating LLMChain: {str(e)}")
+            raise Exception(f"Failed to create database chain with LLMChain: {str(e)}")
     except Exception as e:
         logging.error(f"Error creating database chain: {str(e)}")
         raise Exception(f"Failed to create database chain: {str(e)}")
