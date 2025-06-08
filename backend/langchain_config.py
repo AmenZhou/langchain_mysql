@@ -15,11 +15,11 @@ from langchain.memory import ConversationBufferMemory
 from pydantic import Field
 import sys
 
-from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
-from .exceptions import OpenAIRateLimitError, OpenAIAPIError
+from prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
+from exceptions import OpenAIRateLimitError, OpenAIAPIError
 
 if TYPE_CHECKING:
-    from .schema_vectorizer import SchemaVectorizer
+    from schema_vectorizer import SchemaVectorizer
 
 logger = logging.getLogger(__name__)
 

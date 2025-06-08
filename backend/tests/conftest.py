@@ -12,11 +12,11 @@ from openai import APIError, RateLimitError
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker
-from backend.schema_vectorizer import SchemaVectorizer
-from backend.vector_store import VectorStoreManager
+from schema_vectorizer import SchemaVectorizer
+from vector_store import VectorStoreManager
 from langchain.schema import Document
 import logging
-from backend.db_utils import get_database_url
+from db_utils import get_database_url
 
 logger = logging.getLogger(__name__)
 

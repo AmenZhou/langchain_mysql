@@ -8,10 +8,10 @@ from langchain.schema import Document
 from langchain_community.embeddings import OpenAIEmbeddings
 from sqlalchemy.exc import SQLAlchemyError
 
-from .utils.error_handling import handle_openai_error
-from .database import get_db_engine
-from .schema_extractor import SchemaExtractor
-from .vector_store import VectorStoreManager
+from utils.error_handling import handle_openai_error
+from database import get_db_engine
+from schema_extractor import SchemaExtractor
+from vector_store import VectorStoreManager
 
 from sqlalchemy import inspect, MetaData
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -20,7 +20,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain_community.vectorstores import FAISS
-from .prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
+from prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
 
 # Configure logging
 logger = logging.getLogger(__name__)

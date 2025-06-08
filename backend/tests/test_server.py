@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, Mock
-from ..main import app
-from ..langchain_mysql import LangChainMySQL
-from ..security import limiter
+from main import app
+from langchain_mysql import LangChainMySQL
+from security import limiter
 from starlette.requests import Request
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def mock_langchain_mysql():
 @pytest.fixture
 def test_client(mock_langchain_mysql):
     """Create a test client."""
-    from ..routers.query import get_langchain_mysql  # Import the actual dependency
+    from routers.query import get_langchain_mysql  # Import the actual dependency
 
     # Clear any existing overrides
     app.dependency_overrides = {}
@@ -41,7 +41,7 @@ def test_client(mock_langchain_mysql):
          patch('langchain_openai.ChatOpenAI', return_value=mock_chat), \
          patch('langchain_community.chat_models.ChatOpenAI', return_value=mock_chat), \
          patch('openai.OpenAI') as mock_openai, \
-         patch('backend.utils.sql_utils.AsyncOpenAI') as mock_async_openai:
+         patch('utils.sql_utils.AsyncOpenAI') as mock_async_openai:
         
         # Set up the OpenAI mock
         mock_openai_instance = mock_openai.return_value

@@ -8,15 +8,15 @@ from langchain_core.outputs import ChatResult
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langchain_community.utilities import SQLDatabase
-from backend.utils import sanitize_sql_response
-from backend.prompts import get_sanitize_prompt
+from utils import sanitize_sql_response
+from prompts import get_sanitize_prompt
 from langchain_community.chat_models import ChatOpenAI
 from fastapi import HTTPException
 from sqlalchemy.exc import ProgrammingError, OperationalError
 from openai import RateLimitError, APIError, OpenAIError
 from openai import AsyncOpenAI
 
-from backend.utils.sql_utils import (
+from utils.sql_utils import (
     sanitize_sql_response,
     extract_table_name,
     get_openai_client,
@@ -34,7 +34,7 @@ def mock_env():
 @pytest.mark.asyncio
 async def test_get_openai_client_success():
     """Test successful OpenAI client initialization."""
-    with patch('backend.utils.sql_utils.AsyncOpenAI') as mock:
+    with patch('utils.sql_utils.AsyncOpenAI') as mock:
         mock_client = AsyncMock(spec=AsyncOpenAI)
         mock.return_value = mock_client
         client = get_openai_client()

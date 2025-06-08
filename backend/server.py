@@ -3,21 +3,21 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from sqlalchemy import create_engine, Engine, text
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, OperationalError
 from pydantic import BaseModel
-from .schema_vectorizer import SchemaVectorizer
-from .langchain_config import create_db_chain_with_schema, get_relevant_prompt
-from .utils import sanitize_sql_response
+from schema_vectorizer import SchemaVectorizer
+from langchain_config import create_db_chain_with_schema, get_relevant_prompt
+from utils import sanitize_sql_response
 import os
 import asyncio
-from .langchain_config import backoff_with_jitter
+from langchain_config import backoff_with_jitter
 import traceback
 import logging
 from openai import OpenAIError, RateLimitError, APIError
-from .exceptions import DatabaseError
-from .langchain_mysql import LangChainMySQL
+from exceptions import DatabaseError
+from langchain_mysql import LangChainMySQL
 from fastapi.middleware.cors import CORSMiddleware
-from .database import get_db_engine, get_langchain_mysql
-from .models import QueryRequest, QueryResponse
-from .db_utils import get_database_url
+from database import get_db_engine, get_langchain_mysql
+from models import QueryRequest, QueryResponse
+from db_utils import get_database_url
 
 # Configure logging
 logger = logging.getLogger(__name__)

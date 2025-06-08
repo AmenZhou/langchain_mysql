@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import inspect
-from ..schema_extractor import SchemaExtractor
+from schema_extractor import SchemaExtractor
 
 @pytest.fixture
 def mock_inspector():

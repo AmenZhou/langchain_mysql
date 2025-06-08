@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from langchain.schema import Document
-from backend.vector_store import VectorStoreManager
-from ..schema_vectorizer import SchemaVectorizer
+from vector_store import VectorStoreManager
+from schema_vectorizer import SchemaVectorizer
 import asyncio
 from langchain_community.vectorstores import FAISS
 import respx
@@ -52,7 +52,7 @@ async def test_initialize_schema_store(mock_embeddings, sample_documents, monkey
     # Arrange
     manager = VectorStoreManager(embeddings=mock_embeddings)
     mock_faiss = MagicMock()
-    monkeypatch.setattr("backend.vector_store.vector_store.FAISS", mock_faiss)
+    monkeypatch.setattr("vector_store.vector_store.FAISS", mock_faiss)
     
     # Act
     await manager.initialize_schema_store(sample_documents)
@@ -66,7 +66,7 @@ async def test_initialize_schema_store(mock_embeddings, sample_documents, monkey
 async def test_query_schema(mock_embeddings, sample_documents, mock_faiss, monkeypatch):
     # Arrange
     manager = VectorStoreManager(embeddings=mock_embeddings)
-    monkeypatch.setattr("backend.vector_store.vector_store.FAISS", Mock(return_value=mock_faiss))
+    monkeypatch.setattr("vector_store.vector_store.FAISS", Mock(return_value=mock_faiss))
     await manager.initialize_schema_store(sample_documents)
     manager.schema_vectordb = mock_faiss
     
@@ -118,7 +118,7 @@ async def test_schema_vectorizer_integration(mock_embeddings, sample_documents, 
     # Mock FAISS
     mock_faiss = MagicMock()
     mock_faiss.similarity_search = Mock(return_value=[sample_documents[0]])
-    monkeypatch.setattr("backend.vector_store.vector_store.FAISS", Mock(return_value=mock_faiss))
+    monkeypatch.setattr("vector_store.vector_store.FAISS", Mock(return_value=mock_faiss))
     
     # Act
     schema_info = await vectorizer.schema_extractor.extract_table_schema()

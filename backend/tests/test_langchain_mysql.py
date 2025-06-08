@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from backend.langchain_mysql import LangChainMySQL
+from langchain_mysql import LangChainMySQL
 
 @pytest.fixture
 def mock_db_engine():
@@ -20,8 +20,9 @@ def mock_schema_vectorizer():
 @pytest.mark.asyncio
 async def test_initialization(mock_db_engine, mock_schema_vectorizer):
     """Test that LangChainMySQL can be initialized."""
-    with patch('backend.database.get_db_engine', return_value=mock_db_engine), \
-         patch('backend.langchain_mysql.SchemaVectorizer', return_value=mock_schema_vectorizer):
+    with patch('langchain_mysql.create_engine', return_value=mock_db_engine), \
+         patch('langchain_mysql.SchemaVectorizer', return_value=mock_schema_vectorizer):
         instance = LangChainMySQL()
-        await instance.initialize()
         assert instance.schema_vectorizer is not None
+        assert instance.engine is not None
+        assert instance.llm is not None

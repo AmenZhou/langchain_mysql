@@ -1,11 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import query, auth
-from .security import setup_security_middleware, limiter
-from .config import Settings
+from routers import query, auth
+from security import setup_security_middleware, limiter
+from config import Settings
 from contextlib import asynccontextmanager
-from .schema_vectorizer import SchemaVectorizer
-from .db_utils import get_database_url
+from schema_vectorizer import SchemaVectorizer
+from db_utils import get_database_url
 import logging
 import os
 

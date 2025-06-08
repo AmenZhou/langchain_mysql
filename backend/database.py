@@ -6,10 +6,10 @@ import pymysql
 from typing import Optional, TYPE_CHECKING
 from fastapi import HTTPException, status
 import logging
-from .db_utils import get_database_url
+from db_utils import get_database_url
 
 if TYPE_CHECKING:
-    from .langchain_mysql import LangChainMySQL
+    from langchain_mysql import LangChainMySQL
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def get_langchain_mysql():
     """Get or create the LangChainMySQL instance."""
     global langchain_mysql
     if langchain_mysql is None:
-        from .langchain_mysql import LangChainMySQL
+        from langchain_mysql import LangChainMySQL
         langchain_mysql = LangChainMySQL()
         try:
             await langchain_mysql.initialize()

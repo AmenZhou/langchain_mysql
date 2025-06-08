@@ -13,9 +13,9 @@ from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from ..database import get_db
+from database import get_db
 from langchain_openai import ChatOpenAI
-from ..langchain_config import (
+from langchain_config import (
     get_table_query_prompt,
     get_column_query_prompt,
     get_sanitize_prompt,
@@ -91,10 +91,100 @@ async def refine_prompt_with_ai(query: str, schema_info: str = None, prompt_type
         raise
 
 async def sanitize_sql_response(sql_result: str) -> str:
-    """Sanitize SQL query results using AI."""
+    """Sanitize SQL query results using AI to remove PII/PHI."""
     if not sql_result:
         raise ValueError("Invalid SQL response")
-    return sql_result.strip().rstrip(';')
+    
+    try:
+        # Get the sanitization prompt
+        sanitize_prompt = get_sanitize_prompt(str(sql_result))
+        
+        # Create LLM instance for sanitization
+        llm = ChatOpenAI(
+            model="gpt-3.5-turbo",
+            temperature=0,
+            openai_api_key=os.getenv("OPENAI_API_KEY")
+        )
+        
+        # Create prompt template
+        prompt_template = PromptTemplate(
+            input_variables=["sanitize_prompt"],
+            template="{sanitize_prompt}"
+        )
+        
+        # Create chain and invoke
+        chain = prompt_template | llm
+        result = await chain.ainvoke({"sanitize_prompt": sanitize_prompt})
+        
+        # Extract content from result
+        if hasattr(result, 'content'):
+            sanitized_result = result.content
+        else:
+            sanitized_result = str(result)
+            
+        logger.info(f"Successfully sanitized SQL result")
+        return sanitized_result.strip()
+        
+    except Exception as e:
+        logger.error(f"Error in PII sanitization: {str(e)}")
+        # Fallback to basic sanitization if LLM fails
+        logger.warning("Falling back to basic sanitization due to error")
+        return str(sql_result).strip().rstrip(';')
+
+async def sanitize_query_data(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sanitize structured query data while preserving format."""
+    if not data:
+        return data
+    
+    try:
+        # Convert data to a readable format for the LLM
+        data_str = "Query Results:\n"
+        for i, row in enumerate(data):
+            data_str += f"Row {i+1}:\n"
+            for key, value in row.items():
+                data_str += f"  {key}: {value}\n"
+            data_str += "\n"
+        
+        # Get the sanitization prompt
+        sanitize_prompt = get_sanitize_prompt(data_str)
+        
+        # Create LLM instance for sanitization
+        llm = ChatOpenAI(
+            model="gpt-3.5-turbo",
+            temperature=0,
+            openai_api_key=os.getenv("OPENAI_API_KEY")
+        )
+        
+        # Create prompt template with additional instructions to preserve structure
+        prompt_template = PromptTemplate(
+            input_variables=["sanitize_prompt"],
+            template="""{sanitize_prompt}
+
+IMPORTANT: 
+- Maintain the exact same structure and format
+- Only replace sensitive values with [PRIVATE]
+- Keep column names and row structure intact
+- Return the data in the same readable format"""
+        )
+        
+        # Create chain and invoke
+        chain = prompt_template | llm
+        result = await chain.ainvoke({"sanitize_prompt": sanitize_prompt})
+        
+        # Extract content from result
+        if hasattr(result, 'content'):
+            sanitized_result = result.content
+        else:
+            sanitized_result = str(result)
+            
+        logger.info(f"Successfully sanitized structured query data")
+        return sanitized_result.strip()
+        
+    except Exception as e:
+        logger.error(f"Error in structured data PII sanitization: {str(e)}")
+        # Fallback to original data if sanitization fails
+        logger.warning("Falling back to original data due to sanitization error")
+        return data
 
 def extract_table_name(query: str) -> str:
     """Extract table name from a query string."""

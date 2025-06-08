@@ -2,9 +2,9 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 from typing import Optional, Dict, Any
-from ..langchain_mysql import LangChainMySQL, get_langchain_mysql
-from ..security import limiter
-from ..models import QueryResponse, ResponseType, QueryRequest
+from langchain_mysql import LangChainMySQL, get_langchain_mysql
+from security import limiter
+from models import QueryResponse, ResponseType, QueryRequest
 import logging
 import json
 import sys

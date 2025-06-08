@@ -1,12 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from langchain.schema import Document
-from backend.schema_vectorizer import SchemaVectorizer
-from backend.prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
+from schema_vectorizer import SchemaVectorizer
+from prompts import PROMPT_REFINE, PROMPT_TABLE_QUERY, get_sanitize_prompt
 import logging
-from backend.vector_store import VectorStoreManager
+from vector_store import VectorStoreManager
 from sqlalchemy import INTEGER, VARCHAR
-from backend.schema_extractor import SchemaExtractor
+from schema_extractor import SchemaExtractor
 from unittest.mock import Mock
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,8 @@ def mock_vector_store_manager():
 @pytest.fixture
 def schema_vectorizer():
     """Create SchemaVectorizer with minimal dependencies."""
-    with patch('backend.schema_vectorizer.VectorStoreManager') as mock_store, \
-         patch('backend.schema_vectorizer.SchemaExtractor') as mock_extractor:
+    with patch('schema_vectorizer.VectorStoreManager') as mock_store, \
+         patch('schema_vectorizer.SchemaExtractor') as mock_extractor:
         mock_store.return_value.similarity_search = AsyncMock(return_value=[MOCK_DOCUMENT])
         mock_extractor.return_value.extract_table_schema = AsyncMock(return_value=MOCK_TABLE)
         return SchemaVectorizer(db_url="mock://test")

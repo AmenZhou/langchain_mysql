@@ -16,11 +16,11 @@ from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 
-from .langchain_config import create_db_chain_with_schema, backoff_with_jitter, CachedChatOpenAI
-from .models import QueryRequest, QueryResponse, ResponseType
-from .utils import refine_prompt_with_ai, sanitize_sql_response
-from .schema_vectorizer import SchemaVectorizer
-from .db_utils import get_database_url
+from langchain_config import create_db_chain_with_schema, backoff_with_jitter, CachedChatOpenAI
+from models import QueryRequest, QueryResponse, ResponseType
+from utils import refine_prompt_with_ai, sanitize_sql_response, sanitize_query_data
+from schema_vectorizer import SchemaVectorizer
+from db_utils import get_database_url
 
 # ✅ Load Environment Variables
 load_dotenv()
@@ -190,8 +190,20 @@ Explain in natural language that a non-technical person would understand.'''
             if response_type in [ResponseType.DATA.value, ResponseType.NATURAL_LANGUAGE.value, ResponseType.ALL.value]:
                 logger.info(f"Executing SQL query: {sql_query}")
                 data = await self.run_query_with_retry(sql_query)
-                output["data"] = data
-                logger.info(f"Query executed, {len(data)} rows returned.")
+                
+                # Apply PII filter to sanitize the data
+                logger.info("Applying PII filter to sanitize query results")
+                try:
+                    sanitized_data = await sanitize_query_data(data)
+                    output["data"] = sanitized_data
+                    logger.info("PII filter applied successfully")
+                except Exception as e:
+                    logger.error(f"PII filter failed: {str(e)}")
+                    # Use original data if sanitization fails
+                    output["data"] = data
+                    logger.warning("Using original data due to PII filter failure")
+                
+                logger.info(f"Query executed, data processed and filtered.")
 
                 if response_type in [ResponseType.NATURAL_LANGUAGE.value, ResponseType.ALL.value]:
                     logger.info("Generating natural language explanation.")

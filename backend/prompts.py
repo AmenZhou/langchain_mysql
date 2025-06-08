@@ -46,14 +46,39 @@ IMPORTANT:
 # ✅ Secondary Prompt to Review SQL Response and Remove PHI/PII (Allow IDs)
 def get_sanitize_prompt(sql_result: str) -> str:
     """Get the prompt for sanitizing SQL responses."""
-    return f"""Please clean up and sanitize the following SQL result to ensure no sensitive data is exposed:
+    return f"""You are a data privacy expert. Please sanitize the following database query result to remove all personally identifiable information (PII) and protected health information (PHI) while preserving the data structure:
 
 {sql_result}
 
-Rules for sanitization:
-1. Replace sensitive column values with [PRIVATE]
-2. Keep table names and column names visible
-3. Keep SQL keywords and syntax visible
-4. Keep non-sensitive values (like IDs) visible
-5. Return only the sanitized SQL, no explanations
-"""
+CRITICAL SANITIZATION RULES:
+1. REPLACE with [PRIVATE] any values that could identify individuals:
+   - Names (first, last, full names)
+   - Email addresses
+   - Phone numbers
+   - Social Security Numbers
+   - Address information (street, apartment numbers)
+   - Medical record numbers
+   - Patient identifiers
+   - Credit card numbers
+   - Birth dates (replace with [PRIVATE_DATE])
+   - Any other personal identifiers
+
+2. KEEP VISIBLE (do not replace):
+   - Table names and column names
+   - SQL keywords and syntax
+   - Non-identifying IDs (numeric IDs without personal info)
+   - Generic categorization values (status codes, types, etc.)
+   - Aggregate statistics
+   - Non-personal dates (system dates, creation dates without personal context)
+
+3. PRESERVE FORMAT:
+   - Maintain the exact structure and formatting
+   - Keep row and column organization intact
+   - Preserve data types indication where appropriate
+
+4. OUTPUT REQUIREMENTS:
+   - Return ONLY the sanitized data
+   - No explanations or additional commentary
+   - Maintain readability for legitimate users
+
+Sanitized result:"""

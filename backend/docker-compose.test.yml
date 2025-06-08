@@ -15,19 +15,33 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - mysql_test_data:/var/lib/mysql
 
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+      # Enable BuildKit for cache mounts
+      cache_from:
+        - backend:latest
     environment:
       DATABASE_URL: mysql+pymysql://test_user:testpassword@mysql:3306/test_db
       OPENAI_API_KEY: test_key
       PYTHONPATH: /app
     volumes:
       - .:/app
+      # Persist pip cache between container runs
+      - pip_cache:/root/.cache/pip
+      # Persist Python packages
+      - site_packages:/usr/local/lib/python3.11/site-packages
     depends_on:
       mysql:
         condition: service_healthy
     command: >
-      sh -c "cd /app && python -m pytest tests/ -v --import-mode=importlib" 
+      sh -c "cd /app && python -m pytest tests/ -v --import-mode=importlib"
+
+volumes:
+  mysql_test_data:
+  pip_cache:
+  site_packages: 
