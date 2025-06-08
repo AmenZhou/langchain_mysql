@@ -11,8 +11,9 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-rootpassword}
       DB_NAME: ${DB_NAME:-dev_tas_live}
       DB_PORT: ${DB_PORT:-3306}
+      PYTHONPATH: /app
     volumes:
-      - .:/app
+      - ./backend:/app
     ports:
       - "8000:8000"
     networks:
@@ -22,7 +23,7 @@ services:
     command: [
       "sh",
       "-c",
-      "find /app/backend -type f -name '*.pyc' -delete && find /app/backend -type d -name '__pycache__' -exec rm -r {} + && export PYTHONPATH=/app && python -m uvicorn backend.langchain_mysql:app --host 0.0.0.0 --port 8000"
+      "find /app -type f -name '*.pyc' -delete && find /app -type d -name '__pycache__' -exec rm -r {} + && cd /app && python -m uvicorn langchain_mysql:app --host 0.0.0.0 --port 8000"
     ]
 
   mysql:

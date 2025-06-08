@@ -137,54 +137,69 @@ async def sanitize_query_data(data: List[Dict[str, Any]]) -> List[Dict[str, Any]
         return data
     
     try:
-        # Convert data to a readable format for the LLM
-        data_str = "Query Results:\n"
-        for i, row in enumerate(data):
-            data_str += f"Row {i+1}:\n"
+        # Process each row to sanitize PII fields
+        sanitized_data = []
+        
+        for row in data:
+            sanitized_row = {}
             for key, value in row.items():
-                data_str += f"  {key}: {value}\n"
-            data_str += "\n"
+                # Check if this field contains PII that should be filtered
+                if value is None:
+                    sanitized_row[key] = value
+                elif _is_pii_field(key, str(value)):
+                    sanitized_row[key] = "[PRIVATE]"
+                else:
+                    sanitized_row[key] = value
+            sanitized_data.append(sanitized_row)
         
-        # Get the sanitization prompt
-        sanitize_prompt = get_sanitize_prompt(data_str)
-        
-        # Create LLM instance for sanitization
-        llm = ChatOpenAI(
-            model="gpt-3.5-turbo",
-            temperature=0,
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
-        
-        # Create prompt template with additional instructions to preserve structure
-        prompt_template = PromptTemplate(
-            input_variables=["sanitize_prompt"],
-            template="""{sanitize_prompt}
-
-IMPORTANT: 
-- Maintain the exact same structure and format
-- Only replace sensitive values with [PRIVATE]
-- Keep column names and row structure intact
-- Return the data in the same readable format"""
-        )
-        
-        # Create chain and invoke
-        chain = prompt_template | llm
-        result = await chain.ainvoke({"sanitize_prompt": sanitize_prompt})
-        
-        # Extract content from result
-        if hasattr(result, 'content'):
-            sanitized_result = result.content
-        else:
-            sanitized_result = str(result)
-            
-        logger.info(f"Successfully sanitized structured query data")
-        return sanitized_result.strip()
+        logger.info(f"Successfully sanitized {len(sanitized_data)} rows of structured query data")
+        return sanitized_data
         
     except Exception as e:
         logger.error(f"Error in structured data PII sanitization: {str(e)}")
         # Fallback to original data if sanitization fails
         logger.warning("Falling back to original data due to sanitization error")
         return data
+
+def _is_pii_field(field_name: str, value: str) -> bool:
+    """Check if a field contains PII based on field name and value patterns."""
+    if not value or value == "None":
+        return False
+    
+    # Field names that typically contain PII
+    pii_field_names = {
+        'email', 'phone', 'ssn', 'social_security', 'passport', 'license',
+        'first_name', 'last_name', 'full_name', 'name', 'address', 'street',
+        'city', 'zip', 'postal', 'credit_card', 'bank_account', 'routing',
+        'dob', 'birth_date', 'birthday', 'personal_id', 'patient_id',
+        'medical_record', 'diagnosis', 'prescription', 'salary', 'income'
+    }
+    
+    # Check if field name contains PII indicators
+    field_lower = field_name.lower()
+    if any(pii_term in field_lower for pii_term in pii_field_names):
+        return True
+    
+    # Value patterns that indicate PII
+    import re
+    
+    # Email pattern
+    if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', value):
+        return True
+    
+    # Phone pattern (various formats)
+    if re.match(r'^[\+]?[1-9]?[\d\s\-\(\)\.]{7,15}$', value.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')):
+        return True
+    
+    # SSN pattern (XXX-XX-XXXX)
+    if re.match(r'^\d{3}-\d{2}-\d{4}$', value):
+        return True
+    
+    # Credit card pattern (basic check for 13-19 digits)
+    if re.match(r'^\d{13,19}$', value.replace(' ', '').replace('-', '')):
+        return True
+    
+    return False
 
 def extract_table_name(query: str) -> str:
     """Extract table name from a query string."""
