@@ -2,17 +2,19 @@ name: PII Filter Test
 
 on:
   pull_request:
-    branches: [ main, develop ]
     paths:
       - 'backend/utils/**'
       - 'backend/prompts.py'
       - 'backend/langchain_mysql.py'
+      - 'backend/config.py'
+      - 'backend/charts/**'
   push:
-    branches: [ main, develop ]
     paths:
       - 'backend/utils/**'
       - 'backend/prompts.py'
       - 'backend/langchain_mysql.py'
+      - 'backend/config.py'
+      - 'backend/charts/**'
 
 jobs:
   pii-filter-test:
