@@ -12,6 +12,7 @@ services:
       DB_NAME: ${DB_NAME:-dev_tas_live}
       DB_PORT: ${DB_PORT:-3306}
       PYTHONPATH: /app
+      ENABLE_PII_FILTERING: ${ENABLE_PII_FILTERING:-true}
     volumes:
       - ./backend:/app
     ports:
@@ -23,7 +24,7 @@ services:
     command: [
       "sh",
       "-c",
-      "find /app -type f -name '*.pyc' -delete && find /app -type d -name '__pycache__' -exec rm -r {} + && cd /app && python -m uvicorn langchain_mysql:app --host 0.0.0.0 --port 8000"
+      "find /app -type f -name '*.pyc' -delete && find /app -type d -name '__pycache__' -exec rm -r {} + && cd /app && python -m uvicorn server:app --host 0.0.0.0 --port 8000"
     ]
 
   mysql:

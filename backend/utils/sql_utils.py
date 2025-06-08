@@ -32,6 +32,8 @@ def get_openai_client() -> AsyncOpenAI:
 
 # ✅ Configure Logging
 import logging
+from config import is_pii_filtering_enabled
+
 logger = logging.getLogger(__name__)
 
 async def get_sql_chain():
@@ -95,6 +97,12 @@ async def sanitize_sql_response(sql_result: str) -> str:
     if not sql_result:
         raise ValueError("Invalid SQL response")
     
+    # Check global configuration for PII filtering
+    if not is_pii_filtering_enabled():
+        logger.info("⚠️  PII sanitization DISABLED - skipping LLM call and returning original response")
+        return str(sql_result).strip().rstrip(';')
+    
+    # PII filtering is enabled - perform sanitization
     try:
         # Get the sanitization prompt
         sanitize_prompt = get_sanitize_prompt(str(sql_result))
@@ -136,6 +144,12 @@ async def sanitize_query_data(data: List[Dict[str, Any]]) -> List[Dict[str, Any]
     if not data:
         return data
     
+    # Check global configuration for PII filtering
+    if not is_pii_filtering_enabled():
+        logger.info(f"⚠️  PII filtering DISABLED - returning {len(data)} rows of unfiltered data")
+        return data
+    
+    # PII filtering is enabled - perform sanitization
     try:
         # Process each row to sanitize PII fields
         sanitized_data = []

@@ -82,6 +82,89 @@ This application uses a vector database to store and retrieve database schema in
 
 The schema information is automatically preloaded when the application starts.
 
+## PII/PHI Data Protection
+
+This application includes comprehensive PII (Personally Identifiable Information) and PHI (Protected Health Information) filtering capabilities to ensure sensitive data protection in query responses.
+
+### PII Filtering Configuration
+
+The PII filtering system can be controlled via environment variables and runtime configuration:
+
+#### Environment Variable Control
+
+**Enable PII Filtering (Default - Recommended for Production):**
+```bash
+# In .env file or environment
+ENABLE_PII_FILTERING=true
+
+# Or in docker-compose.yml
+environment:
+  ENABLE_PII_FILTERING: true
+```
+
+**Disable PII Filtering (For Development/Demo):**
+```bash
+# In .env file or environment
+ENABLE_PII_FILTERING=false
+
+# Or in docker-compose.yml
+environment:
+  ENABLE_PII_FILTERING: false
+```
+
+#### Runtime Configuration
+
+You can also control PII filtering programmatically:
+
+```python
+from backend.config import AppConfig
+
+# Check current status
+print(f"PII Filtering enabled: {AppConfig.is_pii_filtering_enabled()}")
+
+# Enable PII filtering
+AppConfig.enable_pii_filtering()
+
+# Disable PII filtering  
+AppConfig.disable_pii_filtering()
+
+# Toggle PII filtering
+AppConfig.toggle_pii_filtering()
+```
+
+### How PII Filtering Works
+
+When enabled, the system applies multiple layers of protection:
+
+1. **Post-processing Filter**: Sanitizes query results using an LLM to identify and replace sensitive data with `[PRIVATE]`
+2. **SQL Response Filter**: Analyzes SQL query results for potential PII/PHI data
+3. **Prompt-based Protection**: Uses specialized prompts to instruct the LLM to identify and mask sensitive information
+
+### Performance Optimization
+
+The system is optimized for performance:
+- **When PII filtering is disabled**: All filtering functions are bypassed entirely, eliminating unnecessary LLM calls
+- **When PII filtering is enabled**: Only processes data that potentially contains sensitive information
+
+### Security Considerations
+
+**Production Deployment:**
+- Always enable PII filtering in production environments
+- Review filtered results to ensure sensitive data protection
+- Consider additional encryption for data at rest and in transit
+
+**Development/Testing:**
+- PII filtering can be disabled for better development experience with real data visibility
+- Ensure test databases don't contain actual sensitive information
+
+### Chart Generation Impact
+
+PII filtering affects chart generation:
+- **Enabled**: Charts may show `[PRIVATE]` labels instead of actual values
+- **Disabled**: Charts display actual data values for better visualization
+
+For demonstration purposes, you may want to temporarily disable PII filtering to showcase full functionality with real data.
+
 ## Additional Resources
 
 For more information on the technologies used in this project, consider exploring the following resources:

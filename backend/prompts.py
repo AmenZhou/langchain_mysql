@@ -1,3 +1,8 @@
+import logging
+from config import is_pii_filtering_enabled
+
+logger = logging.getLogger(__name__)
+
 # ✅ Prompt for the Refinement AI
 PROMPT_REFINE = """You are an expert prompt engineer. Your task is to take a user's natural language query and refine it to reliably generate a raw SQL query using a language model connected to a SQL database via Langchain. The goal is to get ONLY the SQL query, without any extra explanations, execution results, or natural language.
 
@@ -46,6 +51,12 @@ IMPORTANT:
 # ✅ Secondary Prompt to Review SQL Response and Remove PHI/PII (Allow IDs)
 def get_sanitize_prompt(sql_result: str) -> str:
     """Get the prompt for sanitizing SQL responses."""
+    # Check global configuration for PII filtering
+    if not is_pii_filtering_enabled():
+        logger.warning("⚠️  get_sanitize_prompt() called but PII filtering is disabled - returning original data")
+        return sql_result
+    
+    # PII filtering is enabled - return the sanitization prompt
     return f"""You are a data privacy expert. Please sanitize the following database query result to remove all personally identifiable information (PII) and protected health information (PHI) while preserving the data structure:
 
 {sql_result}

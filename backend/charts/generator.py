@@ -201,27 +201,78 @@ class ChartGenerator:
             raise ChartRenderingError(f"Failed to generate line chart: {str(e)}")
     
     def _generate_pie_chart(self, df: pd.DataFrame, config: ChartConfig) -> Dict[str, Any]:
-        """Generate a pie chart using Plotly."""
+        """Generate an enhanced pie chart using Plotly."""
         try:
             value_counts = df[config.x_axis].value_counts()
+            total_items = value_counts.sum()
             
+            # Calculate percentages for better insights
+            percentages = (value_counts / total_items * 100).round(1)
+            
+            # Create color palette - use distinct colors for better visibility
+            colors = px.colors.qualitative.Set3[:len(value_counts)]
+            
+            # Create the pie chart with enhanced styling
             fig = px.pie(
                 values=value_counts.values,
                 names=value_counts.index,
-                title=config.title
+                title=config.title,
+                color_discrete_sequence=colors
+            )
+            
+            # Enhanced styling and formatting
+            fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>' +
+                             'Count: %{value}<br>' +
+                             'Percentage: %{percent}<br>' +
+                             '<extra></extra>',
+                marker=dict(line=dict(color='#FFFFFF', width=2))
             )
             
             fig.update_layout(
-                height=400,
-                font=dict(size=12)
+                height=500,  # Slightly taller for better readability
+                font=dict(size=12),
+                showlegend=True,
+                legend=dict(
+                    orientation="v",
+                    yanchor="middle",
+                    y=0.5,
+                    xanchor="left",
+                    x=1.01
+                ),
+                margin=dict(l=20, r=120, t=60, b=20)  # More space for legend
             )
+            
+            # Calculate additional insights
+            sorted_percentages = percentages.sort_values(ascending=False)
+            
+            # Determine if data is well-distributed or concentrated
+            top_3_share = sorted_percentages.head(3).sum() if len(sorted_percentages) >= 3 else sorted_percentages.sum()
+            concentration = "high" if top_3_share > 75 else "medium" if top_3_share > 50 else "low"
             
             data_summary = {
                 "total_categories": len(value_counts),
-                "total_items": int(value_counts.sum()),
+                "total_items": int(total_items),
                 "largest_category": str(value_counts.index[0]),
-                "largest_percentage": float(value_counts.iloc[0] / value_counts.sum() * 100),
-                "chart_type_info": "Pie chart showing distribution of categorical data"
+                "largest_count": int(value_counts.iloc[0]),
+                "largest_percentage": float(percentages.iloc[0]),
+                "smallest_category": str(value_counts.index[-1]),
+                "smallest_count": int(value_counts.iloc[-1]),
+                "smallest_percentage": float(percentages.iloc[-1]),
+                "top_3_categories_share": float(top_3_share),
+                "data_concentration": concentration,
+                "diversity_index": float(1 - sum((percentages/100)**2)),  # Simpson's diversity index
+                "category_breakdown": [
+                    {
+                        "category": str(name),
+                        "count": int(count),
+                        "percentage": float(pct)
+                    }
+                    for name, count, pct in zip(value_counts.index, value_counts.values, percentages.values)
+                ],
+                "chart_type_info": f"Pie chart showing distribution of {config.x_axis} across {len(value_counts)} categories"
             }
             
             return {

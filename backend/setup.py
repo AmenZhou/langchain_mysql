@@ -25,6 +25,13 @@ setup(
         "python-multipart>=0.0.6",
         "bcrypt>=4.1.2",
         "itsdangerous>=2.1.2",
+        # Chart generation dependencies
+        "pandas>=2.1.4",
+        "matplotlib>=3.8.2",
+        "seaborn>=0.12.2",
+        "plotly>=5.17.0",
+        "kaleido>=0.2.1",
+        "numpy>=2.1.0",
     ],
     extras_require={
         "test": [

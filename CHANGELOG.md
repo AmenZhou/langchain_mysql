@@ -1,6 +1,123 @@
 # Changelog
 
-## [Unreleased] - 2025-04-27
+## [Unreleased] - 2025-01-08
+
+### Added
+- **Comprehensive Chart Generation System**: Full implementation of intelligent chart generation with support for bar charts, line charts, pie charts, scatter plots, histograms, and time series
+  - Advanced chart type detection based on data characteristics
+  - Beautiful Plotly visualizations with interactive features
+  - Smart confidence scoring and data analysis
+  - Detailed chart metadata and recommendations
+- **Configurable PII/PHI Data Protection**: Enterprise-grade privacy protection system
+  - Global configuration system via environment variables (`ENABLE_PII_FILTERING`)
+  - Runtime configuration methods for dynamic control
+  - Performance-optimized filtering (bypasses LLM calls when disabled)
+  - Multi-layer protection: post-processing, SQL response, and prompt-based filtering
+  - Production-ready with secure defaults (filtering enabled by default)
+- **Interactive Chart Demo**: Professional HTML demo showcasing chart generation capabilities
+  - Real-time chart generation from natural language queries
+  - Multiple example queries demonstrating different chart types
+  - Chart eligibility analysis and confidence scoring display
+  - Integration with PII filtering system for secure demonstrations
+
+### Changed
+- **Enhanced Docker Configuration**: Updated container setup with complete chart dependencies
+  - Added pandas, plotly, matplotlib, seaborn, numpy, and kaleido to setup.py
+  - Fixed container startup issues with proper dependency management
+  - Improved docker-compose.yml with PII filtering environment variables
+
+### Technical Implementation Details
+
+#### PII/PHI Data Protection System
+
+The new PII filtering system provides enterprise-grade data protection with the following components:
+
+1. **Global Configuration (`backend/config.py`)**
+   ```python
+   class AppConfig:
+       ENABLE_PII_FILTERING: bool = True  # Secure by default
+       
+       @classmethod
+       def is_pii_filtering_enabled(cls) -> bool
+       def enable_pii_filtering(cls) -> None
+       def disable_pii_filtering(cls) -> None
+       def toggle_pii_filtering(cls) -> None
+   ```
+
+2. **Environment Variable Control**
+   - `ENABLE_PII_FILTERING=true|false` controls the global setting
+   - Docker containers can be configured via docker-compose.yml
+   - Production defaults to enabled for security
+
+3. **Performance Optimization**
+   - When disabled: Complete bypass of all filtering logic (no LLM calls)
+   - When enabled: Intelligent filtering only when needed
+   - Eliminates unnecessary API costs and latency when filtering is off
+
+4. **Multi-Layer Protection**
+   - `sanitize_sql_response()`: Analyzes SQL query results
+   - `sanitize_query_data()`: Post-processes final data
+   - `get_sanitize_prompt()`: LLM prompt-based filtering
+   - All functions check global config before processing
+
+#### Chart Generation System Architecture
+
+The chart system is built with a modular architecture:
+
+1. **Chart Orchestrator (`charts/orchestrator.py`)**
+   - Central coordinator for chart generation workflow
+   - Manages chart eligibility, type detection, and generation
+   - Provides confidence scoring and recommendations
+
+2. **Chart Type Detector (`charts/detector.py`)**
+   - Intelligent analysis of data characteristics
+   - Supports 6 chart types: bar, line, pie, scatter, histogram, time series
+   - Confidence scoring based on data suitability
+
+3. **Chart Generator (`charts/generator.py`)**
+   - Creates beautiful Plotly visualizations
+   - Interactive features with hover information
+   - Professional color palettes and styling
+
+4. **Chart Analyzer (`charts/analyzer.py`)**
+   - Data quality assessment and statistics
+   - Diversity and concentration metrics
+   - Category distribution analysis
+
+#### Demo Integration
+
+The chart demo (`frontend/chart_demo.html`) showcases:
+- Real-time chart generation from natural language
+- PII filtering toggle for demonstration purposes
+- Professional UI with confidence indicators
+- Multiple chart type examples
+
+### Migration Guide
+
+To enable PII filtering in production:
+
+1. **Environment Variable (Recommended)**
+   ```bash
+   export ENABLE_PII_FILTERING=true
+   ```
+
+2. **Docker Compose**
+   ```yaml
+   environment:
+     ENABLE_PII_FILTERING: true
+   ```
+
+3. **Runtime Control**
+   ```python
+   from backend.config import AppConfig
+   AppConfig.enable_pii_filtering()
+   ```
+
+### Breaking Changes
+
+None. PII filtering is enabled by default, maintaining backward compatibility while enhancing security.
+
+## [Previous] - 2025-04-27
 
 ### Added
 - Enhanced schema understanding and query processing capabilities
