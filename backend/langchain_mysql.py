@@ -1,5 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import HTTPException
 from dotenv import load_dotenv
 import os
 import time
@@ -10,14 +9,12 @@ from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, OperationalError
 from typing import Optional, Dict, Any, List
 from fastapi import status
 from openai import RateLimitError, APIError
-from contextlib import asynccontextmanager
 from sqlalchemy import text, create_engine
 from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 
 from langchain_config import create_db_chain_with_schema, backoff_with_jitter, CachedChatOpenAI
-from models import QueryRequest, QueryResponse, ResponseType
 from utils import refine_prompt_with_ai, sanitize_sql_response, sanitize_query_data
 from schema_vectorizer import SchemaVectorizer
 from db_utils import get_database_url
@@ -39,37 +36,31 @@ schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
 session_chat_histories: Dict[str, ConversationBufferMemory] = {}
 DEFAULT_SESSION_ID = "global_session" # For requests without a session_id
 
-# Corrected Lifespan Context Manager
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("!!!!!!!!!! EXECUTING THE CORRECT LIFESPAN FUNCTION NOW !!!!!!!!!!")
-    # Startup
-    logger.info("Application startup: Initiating schema preloading...")
-    try:
-        # Preloading logic using the global schema_vectorizer:
-        schema_info = await schema_vectorizer.extract_table_schema()
-        if schema_info:
-            await schema_vectorizer.initialize_vector_store(schema_info)
-            logger.info("Schema preloaded and vector store initialized successfully on startup!")
-        else:
-            logger.warning("No schema info extracted on startup, vector store not initialized with schema.")
-    except Exception as e:
-        logger.error(f"Error during application startup (schema preloading): {e}")
-        logger.error(traceback.format_exc())
-
-    logger.info("Application startup sequence complete.")
-    yield
-
-    # Shutdown
-    logger.info("Application shutdown sequence started.")
-    # Add any cleanup code here if needed
-    logger.info("Application shutdown complete.")
-
 class LangChainMySQL:
+    """
+    LangChain MySQL processor for natural language to SQL conversion.
+    
+    This class handles the core functionality without FastAPI dependencies.
+    """
+    
     def __init__(self):
         self.engine = create_engine(MYSQL_URL, pool_pre_ping=True)
         self.schema_vectorizer = SchemaVectorizer(db_url=MYSQL_URL)
         self.llm = CachedChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.7)
+
+    async def initialize(self):
+        """Initialize the LangChain MySQL instance."""
+        try:
+            # Preloading logic using the global schema_vectorizer:
+            schema_info = await schema_vectorizer.extract_table_schema()
+            if schema_info:
+                await schema_vectorizer.initialize_vector_store(schema_info)
+                logger.info("Schema preloaded and vector store initialized successfully!")
+            else:
+                logger.warning("No schema info extracted, vector store not initialized with schema.")
+        except Exception as e:
+            logger.error(f"Error during initialization (schema preloading): {e}")
+            logger.error(traceback.format_exc())
 
     async def run_query_with_retry(self, query: str, max_retries: int = 3) -> List[Dict[str, Any]]:
         """Run a query with retry logic and return structured data."""
@@ -122,8 +113,9 @@ Explain in natural language that a non-technical person would understand.'''
             logger.error(f"Error generating explanation: {e}")
             return f"Unable to generate explanation due to error: {str(e)}"
 
-    async def process_query(self, query: str, session_id: str, prompt_type: Optional[str] = None, response_type: str = "all") -> Dict[str, Any]:
-        """Process a natural language query and return results based on response_type.
+    async def process_query(self, query: str, session_id: str = None, prompt_type: Optional[str] = None, response_type: str = "all") -> Dict[str, Any]:
+        """
+        Process a natural language query and return results based on response_type.
         
         Args:
             query: The natural language query
@@ -135,6 +127,9 @@ Explain in natural language that a non-technical person would understand.'''
             Dictionary with results based on response_type
         """
         try:
+            # Use default session if none provided
+            session_id = session_id or DEFAULT_SESSION_ID
+            
             logger.info(f"Processing query: '{query}' for session_id: {session_id}, response_type: {response_type}")
             if not query:
                 logger.error("Empty query received")
@@ -187,7 +182,8 @@ Explain in natural language that a non-technical person would understand.'''
 
             output = {"sql": sql_query}
 
-            if response_type in [ResponseType.DATA.value, ResponseType.NATURAL_LANGUAGE.value, ResponseType.ALL.value]:
+            # Simple string comparison instead of enum
+            if response_type in ["data", "natural_language", "all"]:
                 logger.info(f"Executing SQL query: {sql_query}")
                 data = await self.run_query_with_retry(sql_query)
                 
@@ -205,18 +201,19 @@ Explain in natural language that a non-technical person would understand.'''
                 
                 logger.info(f"Query executed, data processed and filtered.")
 
-                if response_type in [ResponseType.NATURAL_LANGUAGE.value, ResponseType.ALL.value]:
+                if response_type in ["natural_language", "all"]:
                     logger.info("Generating natural language explanation.")
                     explanation = await self.generate_explanation(sql_query, data)
                     output["explanation"] = explanation
                     logger.info("Natural language explanation generated.")
             
+            # Set the main result based on response type
             final_result_key = "result"
-            if response_type == ResponseType.SQL.value:
+            if response_type == "sql":
                 output[final_result_key] = output["sql"]
-            elif response_type == ResponseType.DATA.value:
+            elif response_type == "data":
                 output[final_result_key] = output.get("data")
-            elif response_type == ResponseType.NATURAL_LANGUAGE.value:
+            elif response_type == "natural_language":
                 output[final_result_key] = output.get("explanation")
             else: # ALL
                 output[final_result_key] = {k: v for k, v in output.items() if v is not None and k != final_result_key}
@@ -235,60 +232,3 @@ Explain in natural language that a non-technical person would understand.'''
         except Exception as e:
             logger.error(f"Unexpected error processing query: {e}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail={"error": "Internal Server Error", "message": str(e)})
-
-# Initialize LangChainMySQL instance
-langchain_mysql = LangChainMySQL()
-
-async def get_langchain_mysql() -> LangChainMySQL:
-    """Dependency function to get LangChainMySQL instance."""
-    return langchain_mysql
-
-# Initialize FastAPI application
-app = FastAPI(
-    title="LangChain MySQL API",
-    description="API for interacting with MySQL using LangChain",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Dependency to get LangChainMySQL instance
-async def get_langchain_mysql_instance() -> LangChainMySQL:
-    # This could be enhanced to manage a pool or a singleton instance if needed
-    return LangChainMySQL()
-
-@app.post("/query", response_model=QueryResponse)
-async def process_query_endpoint(
-    query_request: QueryRequest, 
-    lc_mysql: LangChainMySQL = Depends(get_langchain_mysql_instance)
-):
-    # Use a default session_id if not provided, or generate a unique one for true session management
-    session_id_to_use = query_request.session_id or DEFAULT_SESSION_ID 
-    if not query_request.session_id:
-        logger.info(f"No session_id provided, using default: {DEFAULT_SESSION_ID}")
-
-    return await lc_mysql.process_query(
-        query=query_request.query, 
-        session_id=session_id_to_use,
-        prompt_type=query_request.prompt_type, 
-        response_type=query_request.response_type.value # Ensure using enum value
-    )
-
-# Add health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "timestamp": time.time()}
-
-# Main entry point for Uvicorn if running directly (though Docker uses a command)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

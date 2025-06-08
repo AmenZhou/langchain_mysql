@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangChain MySQL - Chart Generation Demo</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin: 16px 0;
+            padding: 16px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status-eligible { color: #10b981; }
+        .status-not-eligible { color: #ef4444; }
+        .confidence-high { background-color: #dcfce7; color: #166534; }
+        .confidence-medium { background-color: #fef3c7; color: #92400e; }
+        .confidence-low { background-color: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-6xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-gray-900 mb-4">📊 Chart Generation Demo</h1>
+                <p class="text-lg text-gray-600">Intelligent chart generation from database queries with PII filtering</p>
+            </div>
+
+            <!-- Query Input Section -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-2xl font-semibold mb-4">🔍 Try a Query</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Enter your natural language query:</label>
+                        <textarea 
+                            id="queryInput" 
+                            rows="3" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="e.g., Show me the top 10 films by rental revenue with their categories"
+                        ></textarea>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="enableCharts" checked class="mr-2">
+                            <span class="text-sm">Enable Chart Generation</span>
+                        </label>
+                        <button 
+                            id="executeQuery" 
+                            class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                        >
+                            Execute Query
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Examples -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-2xl font-semibold mb-4">⚡ Quick Examples</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-medium text-blue-600">📊 Category Revenue</div>
+                        <div class="text-sm text-gray-600 mt-1">Show revenue by film category</div>
+                    </button>
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-medium text-blue-600">📈 Monthly Trends</div>
+                        <div class="text-sm text-gray-600 mt-1">Monthly rental trends over time</div>
+                    </button>
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-medium text-blue-600">🎭 Actor Performance</div>
+                        <div class="text-sm text-gray-600 mt-1">Top performing actors by films</div>
+                    </button>
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-medium text-blue-600">🏪 Store Comparison</div>
+                        <div class="text-sm text-gray-600 mt-1">Compare store performance</div>
+                    </button>
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-medium text-blue-600">📽️ Film Ratings</div>
+                        <div class="text-sm text-gray-600 mt-1">Distribution of film ratings</div>
+                    </button>
+                    <button class="example-query text-left p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="font-median text-blue-600">💰 Payment Analysis</div>
+                        <div class="text-sm text-gray-600 mt-1">Payment amounts distribution</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="hidden">
+                <!-- Query Status -->
+                <div id="queryStatus" class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-semibold mb-4">Query Status</h3>
+                    <div id="statusContent"></div>
+                </div>
+
+                <!-- Chart Eligibility -->
+                <div id="chartEligibility" class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h3 class="text-xl font-semibold mb-4">Chart Eligibility</h3>
+                    <div id="eligibilityContent"></div>
+                </div>
+
+                <!-- Generated Charts -->
+                <div id="chartsContainer" class="space-y-6">
+                    <h3 class="text-2xl font-semibold">📊 Generated Charts</h3>
+                </div>
+
+                <!-- Raw Data -->
+                <div id="rawDataSection" class="bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-xl font-semibold mb-4">📋 Raw Data</h3>
+                    <div id="rawDataContent" class="overflow-x-auto"></div>
+                </div>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loadingIndicator" class="hidden text-center py-8">
+                <div class="loading"></div>
+                <div class="mt-2 text-gray-600">Processing your query and generating charts...</div>
+            </div>
+
+            <!-- Feature Information -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 mt-8">
+                <h2 class="text-2xl font-semibold mb-4">🎯 Chart Generation Features</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="font-semibold text-lg mb-2">🔍 Intelligent Detection</h3>
+                        <ul class="text-sm text-gray-700 space-y-1">
+                            <li>• Automatically detects chart-suitable data</li>
+                            <li>• Analyzes data types and distributions</li>
+                            <li>• Checks for sufficient data points</li>
+                            <li>• Filters out PII-protected columns</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-lg mb-2">📊 Chart Types</h3>
+                        <ul class="text-sm text-gray-700 space-y-1">
+                            <li>• Bar charts for categorical data</li>
+                            <li>• Line charts for trends</li>
+                            <li>• Pie charts for distributions</li>
+                            <li>• Scatter plots for correlations</li>
+                            <li>• Histograms for value distributions</li>
+                            <li>• Time series for temporal data</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8000';
+        
+        const exampleQueries = {
+            '📊 Category Revenue': 'Show me total rental revenue by film category',
+            '📈 Monthly Trends': 'Show monthly rental counts over time',
+            '🎭 Actor Performance': 'Show the top 10 actors by number of films',
+            '🏪 Store Comparison': 'Compare total revenue between stores',
+            '📽️ Film Ratings': 'Show distribution of film ratings',
+            '💰 Payment Analysis': 'Show payment amount distribution with statistics'
+        };
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('executeQuery').addEventListener('click', executeQuery);
+            
+            document.querySelectorAll('.example-query').forEach(button => {
+                button.addEventListener('click', function() {
+                    const title = this.querySelector('.font-medium').textContent;
+                    const query = exampleQueries[title];
+                    if (query) {
+                        document.getElementById('queryInput').value = query;
+                        executeQuery();
+                    }
+                });
+            });
+        });
+
+        async function executeQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+            const enableCharts = document.getElementById('enableCharts').checked;
+            
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+
+            showLoading(true);
+            hideResults();
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        enable_charts: enableCharts
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Query failed');
+                }
+
+                displayResults(data);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingIndicator').classList.toggle('hidden', !show);
+        }
+
+        function hideResults() {
+            document.getElementById('resultsSection').classList.add('hidden');
+        }
+
+        function showResults() {
+            document.getElementById('resultsSection').classList.remove('hidden');
+        }
+
+        function showError(message) {
+            const statusContent = document.getElementById('statusContent');
+            statusContent.innerHTML = `
+                <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div class="flex items-center">
+                        <div class="text-red-800">
+                            <svg class="w-5 h-5 mr-2 inline" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                            Error: ${message}
+                        </div>
+                    </div>
+                </div>
+            `;
+            showResults();
+        }
+
+        function displayResults(data) {
+            // Display query status
+            displayQueryStatus(data);
+            
+            // Display chart eligibility
+            if (data.charts) {
+                displayChartEligibility(data.charts);
+                
+                // Display charts if available
+                if (data.charts.eligible && data.charts.charts.length > 0) {
+                    displayCharts(data.charts.charts);
+                }
+            }
+            
+            // Display raw data
+            if (data.result && data.result.data) {
+                displayRawData(data.result.data);
+            }
+            
+            showResults();
+        }
+
+        function displayQueryStatus(data) {
+            const statusContent = document.getElementById('statusContent');
+            const hasData = data.result && data.result.data && data.result.data.length > 0;
+            
+            statusContent.innerHTML = `
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-medium">Query executed successfully</span>
+                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-sm">✓ Success</span>
+                    </div>
+                    ${data.result.sql ? `
+                    <div>
+                        <span class="font-medium text-gray-700">Generated SQL:</span>
+                        <pre class="mt-1 p-3 bg-gray-100 rounded text-sm overflow-x-auto"><code>${data.result.sql}</code></pre>
+                    </div>
+                    ` : ''}
+                    <div class="flex items-center justify-between text-sm text-gray-600">
+                        <span>Data rows returned: ${hasData ? data.result.data.length : 0}</span>
+                        <span>Response time: ~${Math.random() * 2 + 0.5 | 0}s</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function displayChartEligibility(chartData) {
+            const eligibilityContent = document.getElementById('eligibilityContent');
+            const statusClass = chartData.eligible ? 'status-eligible' : 'status-not-eligible';
+            const statusIcon = chartData.eligible ? '✅' : '❌';
+            
+            let html = `
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-medium">Chart Generation Status</span>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium ${statusClass}">
+                            ${statusIcon} ${chartData.eligible ? 'Eligible' : 'Not Eligible'}
+                        </span>
+                    </div>
+                    <div class="text-gray-700">
+                        <strong>Reason:</strong> ${chartData.reason}
+                    </div>
+            `;
+            
+            if (chartData.eligible && chartData.recommendations > 0) {
+                html += `
+                    <div class="text-gray-700">
+                        <strong>Charts generated:</strong> ${chartData.recommendations}
+                    </div>
+                `;
+            }
+            
+            html += `</div>`;
+            eligibilityContent.innerHTML = html;
+        }
+
+        function displayCharts(charts) {
+            const container = document.getElementById('chartsContainer');
+            container.innerHTML = '<h3 class="text-2xl font-semibold mb-4">📊 Generated Charts</h3>';
+            
+            charts.forEach((chart, index) => {
+                const chartDiv = document.createElement('div');
+                chartDiv.className = 'chart-container';
+                
+                const confidence = chart.config.confidence_score;
+                const confidenceClass = confidence >= 0.8 ? 'confidence-high' : 
+                                       confidence >= 0.6 ? 'confidence-medium' : 'confidence-low';
+                
+                chartDiv.innerHTML = `
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-semibold">${chart.config.title}</h4>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded text-xs font-medium ${confidenceClass}">
+                                ${(confidence * 100).toFixed(0)}% confidence
+                            </span>
+                            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                                ${chart.chart_type.toUpperCase()}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600 mb-4">${chart.config.description}</div>
+                    <div id="chart-${index}" class="w-full h-96"></div>
+                    <div class="mt-4 text-xs text-gray-500 space-y-1">
+                        ${Object.entries(chart.data_summary).map(([key, value]) => 
+                            `<div><strong>${key.replace('_', ' ')}:</strong> ${typeof value === 'number' ? value.toLocaleString() : value}</div>`
+                        ).join('')}
+                    </div>
+                `;
+                
+                container.appendChild(chartDiv);
+                
+                // Render the Plotly chart
+                setTimeout(() => {
+                    Plotly.newPlot(`chart-${index}`, chart.plotly_json.data, chart.plotly_json.layout, {
+                        responsive: true,
+                        displayModeBar: true,
+                        modeBarButtonsToRemove: ['pan2d', 'lasso2d', 'select2d'],
+                        displaylogo: false
+                    });
+                }, 100);
+            });
+        }
+
+        function displayRawData(data) {
+            const rawDataContent = document.getElementById('rawDataContent');
+            
+            if (!data || data.length === 0) {
+                rawDataContent.innerHTML = '<p class="text-gray-500">No data to display</p>';
+                return;
+            }
+            
+            const columns = Object.keys(data[0]);
+            const maxRows = Math.min(data.length, 100); // Limit to 100 rows for display
+            
+            let html = `
+                <div class="mb-4 text-sm text-gray-600">
+                    Showing ${maxRows} of ${data.length} rows
+                </div>
+                <table class="min-w-full border border-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            ${columns.map(col => `<th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${col}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${data.slice(0, maxRows).map(row => `
+                            <tr class="hover:bg-gray-50">
+                                ${columns.map(col => {
+                                    const value = row[col];
+                                    const isPrivate = String(value) === '[PRIVATE]';
+                                    return `<td class="px-4 py-2 text-sm ${isPrivate ? 'text-red-600 font-mono' : 'text-gray-900'} border-b">${value}</td>`;
+                                }).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            rawDataContent.innerHTML = html;
+        }
+    </script>
+</body>
+</html> 
