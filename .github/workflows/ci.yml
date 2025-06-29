@@ -35,6 +35,8 @@ jobs:
       run: |
         curl -L https://downloads.mysql.com/docs/sakila-db.zip -o sakila.zip
         unzip sakila.zip
+        # Allow creation of triggers and functions without SUPER privilege
+        mysql -h 127.0.0.1 -P 3308 -u root -ptestpassword -e "SET GLOBAL log_bin_trust_function_creators = 1;"
         mysql -h 127.0.0.1 -P 3308 -u test_user -ptestpassword sakila < sakila-db/sakila-schema.sql
         mysql -h 127.0.0.1 -P 3308 -u test_user -ptestpassword sakila < sakila-db/sakila-data.sql
 
