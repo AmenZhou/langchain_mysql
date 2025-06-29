@@ -17,13 +17,13 @@ jobs:
           MYSQL_USER: test_user
           MYSQL_PASSWORD: testpassword
         ports:
-          - 3306:3306
+          - 3308:3306
         options: >-
           --health-cmd="mysqladmin ping"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
-          --log-bin-trust-function-creators=1
+          --default-authentication-plugin=mysql_native_password
 
     steps:
     - name: Checkout code
@@ -36,8 +36,8 @@ jobs:
       run: |
         curl -L https://downloads.mysql.com/docs/sakila-db.zip -o sakila.zip
         unzip sakila.zip
-        mysql -h 127.0.0.1 -u test_user -ptestpassword sakila < sakila-db/sakila-schema.sql
-        mysql -h 127.0.0.1 -u test_user -ptestpassword sakila < sakila-db/sakila-data.sql
+        mysql -h 127.0.0.1 -P 3308 -u test_user -ptestpassword sakila < sakila-db/sakila-schema.sql
+        mysql -h 127.0.0.1 -P 3308 -u test_user -ptestpassword sakila < sakila-db/sakila-data.sql
 
     - name: Build backend image
       run: |
@@ -70,7 +70,7 @@ jobs:
         cd backend
         docker run --rm \
           --network host \
-          -e DATABASE_URL=mysql+pymysql://test_user:testpassword@localhost:3306/sakila \
+          -e DATABASE_URL=mysql+pymysql://test_user:testpassword@localhost:3308/sakila \
           -e OPENAI_API_KEY=test_key \
           -e PYTHONPATH=/app \
           -v $(pwd):/app \
@@ -83,7 +83,7 @@ jobs:
         # Start the server in background
         docker run -d --name test_server \
           --network host \
-          -e DATABASE_URL=mysql+pymysql://test_user:testpassword@localhost:3306/sakila \
+          -e DATABASE_URL=mysql+pymysql://test_user:testpassword@localhost:3308/sakila \
           -e OPENAI_API_KEY=test_key \
           -e PYTHONPATH=/app \
           -e ENABLE_PII_FILTERING=false \
