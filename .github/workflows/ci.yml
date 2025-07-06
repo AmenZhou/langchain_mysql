@@ -64,7 +64,7 @@ jobs:
           -e ENABLE_PII_FILTERING=true \
           -v $(pwd):/app \
           backend:test \
-          sh -c "cd /app && python -c 'from config import AppConfig; print(f\"PII Filtering: {AppConfig.is_pii_filtering_enabled()}\")'"
+          sh -c "cd /app && python -c 'from backend.config import AppConfig; print(f\"PII Filtering: {AppConfig.is_pii_filtering_enabled()}\")'"
 
     - name: Run unit and integration tests
       run: |
