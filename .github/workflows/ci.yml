@@ -76,7 +76,7 @@ jobs:
           -e PYTHONPATH=/app \
           -v $(pwd):/app \
           backend:test \
-          sh -c "cd /app && python -m pytest tests/ -v --import-mode=importlib --tb=short" || echo "Some tests may fail without proper test data"
+          sh -c "cd /app && python -m pytest tests/ -v --import-mode=importlib --tb=short"
 
     - name: Test API Endpoints
       run: |
